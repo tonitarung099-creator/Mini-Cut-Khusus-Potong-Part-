@@ -1335,6 +1335,45 @@ class MiniCutWindow(QMainWindow):
             return self.gemini_model_combo.currentText().strip() or DEFAULT_MODEL
         return DEFAULT_MODEL
 
+    @staticmethod
+    def _quota_countdown_text(seconds: int) -> str:
+        seconds = max(0, int(seconds or 0))
+        hours, rem = divmod(seconds, 3600)
+        minutes, secs = divmod(rem, 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+    def _refresh_active_quota_display(self):
+        active_id = self.gemini_keys.active_id()
+        model = self._current_gemini_model()
+        if not active_id:
+            quota = "RPM sisa —  ·  TPM sisa —  ·  RPD sisa —"
+            detail = "Belum ada API key aktif."
+        else:
+            try:
+                snap = self.gemini_keys.snapshot(active_id, model)
+                summary = self.gemini_keys.active_summary()
+                quota = (
+                    f"RPM sisa {snap['rpm_remaining']}/{snap['rpm_limit']}  ·  "
+                    f"TPM sisa {snap['tpm_remaining']:,}/{snap['tpm_limit']:,}  ·  "
+                    f"RPD sisa {snap['rpd_remaining']}/{snap['rpd_limit']}"
+                )
+                detail = (
+                    f"{summary.name if summary else 'Gemini API'} · {model} · "
+                    f"RPM/TPM pulih otomatis setelah jendela 60 detik · "
+                    f"Reset RPD dalam {self._quota_countdown_text(snap['rpd_reset_seconds'])} "
+                    f"(Pacific). Angka sisa = catatan lokal MiniCut, bukan dashboard live Google."
+                )
+            except Exception as exc:
+                quota = "RPM sisa ?  ·  TPM sisa ?  ·  RPD sisa ?"
+                detail = "Tidak dapat membaca catatan kuota lokal: " + str(exc)
+
+        if hasattr(self, "film_quota_label"):
+            self.film_quota_label.setText(quota)
+            self.film_quota_reset_label.setText(detail)
+        if hasattr(self, "manager_quota_label"):
+            self.manager_quota_label.setText(quota)
+            self.manager_quota_reset_label.setText(detail)
+
     def _refresh_gemini_key_views(self):
         summaries = self.gemini_keys.summaries()
         active_id = self.gemini_keys.active_id()
@@ -1379,15 +1418,17 @@ class MiniCutWindow(QMainWindow):
                     item.project or "-",
                     item.masked_key,
                     status_text,
-                    f"{snap['rpm_used']}/{snap['rpm_limit']} ({snap['rpm_pct']:.1f}%)",
-                    f"{snap['tpm_used']:,}/{snap['tpm_limit']:,} ({snap['tpm_pct']:.1f}%)",
-                    f"{snap['rpd_used']}/{snap['rpd_limit']} ({snap['rpd_pct']:.1f}%)",
+                    f"{snap['rpm_remaining']}/{snap['rpm_limit']}",
+                    f"{snap['tpm_remaining']:,}/{snap['tpm_limit']:,}",
+                    f"{snap['rpd_remaining']}/{snap['rpd_limit']}",
                 ]
                 for col, value in enumerate(values):
                     cell = QTableWidgetItem(str(value))
                     if col == 0:
                         cell.setData(Qt.ItemDataRole.UserRole, item.id)
                     self.gemini_keys_table.setItem(row, col, cell)
+
+        self._refresh_active_quota_display()
 
     def _selected_gemini_key_id(self) -> str | None:
         if not hasattr(self, "gemini_keys_table"):
@@ -1584,8 +1625,10 @@ class MiniCutWindow(QMainWindow):
             )
         self._gemini_test_key_id = None
         self.film_usage_label.setText(
-            f"Tes API: {usage.get('requests', 0)} request · "
-            f"{usage.get('total_tokens', 0)} token"
+            f"TES API · Request {int(usage.get('requests') or 0)} · "
+            f"Input {int(usage.get('prompt_tokens') or 0):,} · "
+            f"Output {int(usage.get('output_tokens') or 0):,} · "
+            f"Total {int(usage.get('total_tokens') or 0):,} token"
         )
         self.film_status_label.setText("Gemini terhubung · " + model)
         self._refresh_gemini_key_views()
@@ -1743,10 +1786,12 @@ class MiniCutWindow(QMainWindow):
             )
         self._film_usage_seen_requests = requests
         self._film_usage_seen_prompt_tokens = prompt_tokens
+        output_tokens = int(usage.get("output_tokens") or 0)
+        total_tokens = int(usage.get("total_tokens") or 0)
         self.film_usage_label.setText(
-            f"Pemakaian sesi: {requests} request · "
-            f"{prompt_tokens} input token · "
-            f"{usage.get('total_tokens', 0)} total token"
+            f"SESI SAAT INI · Request {requests} · "
+            f"Input {prompt_tokens:,} · Output {output_tokens:,} · "
+            f"Total {total_tokens:,} token"
         )
         self._refresh_gemini_key_views()
 
