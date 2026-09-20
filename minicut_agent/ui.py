@@ -114,6 +114,11 @@ class MiniCutWindow(QMainWindow):
         self.bridge_timer = QTimer(self)
         self.bridge_timer.timeout.connect(self._drain_bridge)
         self.bridge_timer.start(120)
+
+        self.quota_timer = QTimer(self)
+        self.quota_timer.timeout.connect(self._refresh_active_quota_display)
+        self.quota_timer.start(1000)
+
         self._refresh()
 
     # ---------- UI ----------
