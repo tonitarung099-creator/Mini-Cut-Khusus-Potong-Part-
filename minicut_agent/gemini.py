@@ -4,6 +4,7 @@ import base64
 import json
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -52,27 +53,49 @@ class GeminiClient:
 
     def _post(self, payload: dict[str, Any], timeout: int = 90) -> dict[str, Any]:
         url = f"{API_ROOT}/models/{self.model}:generateContent"
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": self.api_key,
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as response:
-                data = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
+        body_bytes = json.dumps(payload).encode("utf-8")
+
+        last_error: Exception | None = None
+        for attempt in range(3):
+            req = urllib.request.Request(
+                url,
+                data=body_bytes,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": self.api_key,
+                },
+                method="POST",
+            )
             try:
-                detail = json.loads(body).get("error", {}).get("message") or body
-            except Exception:
-                detail = body
-            raise RuntimeError(f"Gemini API {exc.code}: {detail}") from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"Tidak dapat terhubung ke Gemini: {exc.reason}") from exc
+                with urllib.request.urlopen(req, timeout=timeout) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as exc:
+                raw = exc.read().decode("utf-8", errors="replace")
+                try:
+                    detail = json.loads(raw).get("error", {}).get("message") or raw
+                except Exception:
+                    detail = raw
+                last_error = RuntimeError(f"Gemini API {exc.code}: {detail}")
+
+                # Retry/backoff hanya pada limit sementara / service unavailable.
+                # Tidak berpindah API key secara otomatis.
+                if exc.code not in (429, 503) or attempt >= 2:
+                    raise last_error from exc
+
+                retry_after = 0.0
+                try:
+                    retry_after = float(exc.headers.get("Retry-After") or 0)
+                except Exception:
+                    retry_after = 0.0
+                fallback = (4.0, 10.0)[attempt]
+                time.sleep(max(fallback, min(60.0, retry_after)))
+            except urllib.error.URLError as exc:
+                raise RuntimeError(
+                    f"Tidak dapat terhubung ke Gemini: {exc.reason}"
+                ) from exc
+        else:
+            raise last_error or RuntimeError("Gemini request gagal setelah retry.")
 
         self.usage.requests += 1
         meta = data.get("usageMetadata") or {}
