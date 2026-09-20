@@ -460,6 +460,54 @@ def _bounded_offset(value: Any, default: int | None) -> int:
     return max(-SEMANTIC_ZONE_LIMIT_MS, min(SEMANTIC_ZONE_LIMIT_MS, offset))
 
 
+def extract_contact_sheet_jpeg(
+    ffmpeg: str,
+    source: Path,
+    start_ms: int,
+    end_ms: int,
+    frame_step_ms: int = CONTACT_FRAME_STEP_MS,
+    cell_width: int = CONTACT_CELL_WIDTH,
+    cols: int = CONTACT_COLS,
+    rows: int = CONTACT_ROWS,
+) -> bytes:
+    """Buat satu JPEG contact sheet dari rentang waktu pendek secara lokal."""
+    start_ms = max(0, int(start_ms))
+    end_ms = max(start_ms + 1, int(end_ms))
+    duration_s = max(0.2, (end_ms - start_ms) / 1000)
+    step_s = max(0.5, int(frame_step_ms) / 1000)
+    cells = max(1, int(cols) * int(rows))
+    vf = (
+        f"fps=1/{step_s:g},"
+        f"scale={max(96, int(cell_width))}:-2:flags=fast_bilinear,"
+        f"tile={max(1, int(cols))}x{max(1, int(rows))}:nb_frames={cells}:padding=2:margin=2"
+    )
+    cmd = [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel", "error",
+        "-ss", f"{start_ms / 1000:.3f}",
+        "-i", str(source),
+        "-t", f"{duration_s:.3f}",
+        "-vf", vf,
+        "-frames:v", "1",
+        "-q:v", "7",
+        "-f", "image2pipe",
+        "-vcodec", "mjpeg",
+        "pipe:1",
+    ]
+    proc = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=creation_flags(),
+        check=False,
+    )
+    if proc.returncode != 0 or not proc.stdout:
+        err = proc.stderr.decode("utf-8", errors="replace")
+        raise RuntimeError(err.strip() or "Gagal membuat contact sheet Gemini.")
+    return proc.stdout
+
+
 def extract_frame_jpeg(
     ffmpeg: str,
     source: Path,
@@ -556,6 +604,72 @@ def _response_text(data: dict[str, Any]) -> str:
         if text.lower().startswith("json"):
             text = text[4:].strip()
     return text
+
+
+def _scene_window_prompt(
+    target_ms: int,
+    window_start_ms: int,
+    window_end_ms: int,
+    previous_summary: str = "",
+    pass_label: str = "awal",
+) -> str:
+    prior = previous_summary.strip() or "(belum ada ringkasan sebelumnya)"
+    return f"""
+Anda memahami alur film untuk menentukan batas PART yang natural.
+
+PATOKAN PART: {format_ms(target_ms)}
+RENTANG YANG SEDANG DILIHAT: {format_ms(window_start_ms)}–{format_ms(window_end_ms)}
+PASS: {pass_label}
+
+RINGKASAN KONTINUITAS SEBELUMNYA:
+{prior}
+
+Anda menerima beberapa SEGMENT 30 detik. Setiap segment berisi:
+- satu contact sheet visual berurutan;
+- daftar timestamp frame F1, F2, dst.;
+- SRT dari rentang waktu yang SAMA.
+
+Pahami VISUAL + ISI SUBTITLE sebagai satu alur. Subtitle bukan hanya penjaga kalimat:
+gunakan isi percakapan untuk memahami apakah topik, aksi, sebab-akibat, pertanyaan-jawaban,
+dan kejadian masih berlanjut.
+
+ATURAN UTAMA:
+1. Target sekitar 15 menit hanya referensi. Jangan membuat cut hanya agar dekat target.
+2. Jika lokasi, waktu, percakapan, aksi, atau kejadian masih satu rangkaian, JANGAN POTONG.
+3. Cut kamera, close-up, angle baru, silence, atau akhir satu kalimat BUKAN alasan cukup.
+4. Lokasi sama boleh dipotong hanya jika jelas ada time jump / kejadian baru / konteks baru.
+5. Perubahan lokasi, waktu, siang↔malam, interior↔eksterior, establishing scene baru,
+   atau percakapan yang jelas masuk konteks baru adalah bukti kuat batas scene.
+6. Jangan membelah pertanyaan-jawaban, aksi-reaksi, sebab-akibat, gerakan penting,
+   atau dialog yang masih menyambung.
+7. Jika seluruh rentang masih satu scene, jangan dipaksa memilih titik.
+8. Jika tidak ada cut natural, pilih EXPAND_FORWARD agar aplikasi mencari beberapa menit lagi.
+9. CUT_FOUND hanya jika contact sheet + SRT benar-benar menunjukkan boundary scene.
+10. Jangan mengarang timestamp. Untuk CUT_FOUND pilih SEGMENT dan FRAME yang tersedia
+    paling dekat dengan awal scene baru / akhir scene lama.
+11. continuity_summary harus ringkas tetapi cukup untuk pass berikutnya:
+    lokasi, waktu, siapa/apa yang sedang terjadi, topik dialog, dan apakah adegan masih berlanjut.
+
+Kembalikan HANYA JSON valid:
+{{
+  "decision": "CUT_FOUND",
+  "segment_index": 1,
+  "frame_index": 1,
+  "confidence": 0.0,
+  "same_scene": false,
+  "same_location": false,
+  "same_time_context": false,
+  "dialogue_continues": false,
+  "needs_video_check": false,
+  "continuity_summary": "ringkasan keadaan terakhir untuk pass berikutnya",
+  "reason": "alasan singkat dalam Bahasa Indonesia"
+}}
+
+decision hanya salah satu:
+CUT_FOUND | NO_CUT | EXPAND_FORWARD | EXPAND_BACKWARD
+
+Jika tidak ada boundary natural, gunakan EXPAND_FORWARD atau NO_CUT.
+""".strip()
 
 
 def _storyboard_prompt(
