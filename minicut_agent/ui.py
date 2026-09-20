@@ -691,10 +691,10 @@ class MiniCutWindow(QMainWindow):
         layout = QVBoxLayout(w)
 
         intro = QLabel(
-            "Target tetap pada grid 15, 30, 45, 60 menit, dst. Untuk setiap target, MiniCut "
-            "mengirim contact sheet visual + SRT yang sinkron. Jika masih satu scene, Gemini boleh "
-            "menjawab NO CUT dan pencarian target itu diperluas +3 menit tanpa menggeser target "
-            "berikutnya. Video pendek hanya dipakai untuk verifikasi boundary yang ambigu."
+            "Target tetap pada grid 15, 30, 45, 60 menit, dst. Contact sheet + SRT dipakai untuk "
+            "memahami konteks, lalu MiniCut mengambil kandidat TERDEKAT dari target dan membandingkan "
+            "hingga 4 kandidat dengan video pendek sekitar 20 detik + SRT. Kandidat lebih jauh hanya "
+            "boleh dipilih bila semua kandidat yang lebih dekat memang bukan boundary scene yang valid."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -1905,12 +1905,12 @@ class MiniCutWindow(QMainWindow):
         self.film_cut_worker.failed.connect(self._film_cut_failed)
         self.film_cut_worker.cancelled.connect(self._film_cut_cancelled)
         self.film_status_label.setText(
-            "Grid tetap 15/30/45/60… · contact sheet + SRT sinkron · "
-            "NO CUT boleh diperluas +3 menit · Deep Check jika perlu."
+            "Grid tetap 15/30/45/60… · contact sheet 1 frame/2 dtk + SRT · "
+            "nearest-valid → video kandidat + SRT → exact frame."
         )
         self._log(
-            "AI Film Cut: grid target absolut → contact sheet+SRT → NO CUT/expand → "
-            "refinement → frame PTS nyata."
+            "AI Film Cut: grid absolut → contact sheet+SRT → shortlist kandidat terdekat → "
+            "video pendek+SRT → nearest-valid → frame PTS nyata."
         )
         self.film_cut_worker.start()
 
