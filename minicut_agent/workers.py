@@ -9,6 +9,7 @@ from PySide6.QtCore import QThread, Signal
 from .candidates import find_candidates_for_target, target_times
 from .core import build_preview_proxy, export_segments, export_segments_smartcut, probe_keyframes, probe_media
 from .gemini import GeminiClient
+from .gemini_keys import model_limits
 from .frame_resolver import resolve_semantic_frame
 from .subtitles import SubtitleTrack, format_ms
 
@@ -168,6 +169,56 @@ class GeminiTestWorker(QThread):
             self.ready.emit(GeminiClient(self.api_key, self.model).test_connection())
         except Exception as exc:
             self.failed.emit(str(exc))
+
+class GeminiBatchTestWorker(QThread):
+    progress_changed = Signal(int, int, str)
+    key_ready = Signal(str, dict)
+    key_failed = Signal(str, str)
+    done = Signal(int, int)
+    cancelled = Signal()
+
+    def __init__(self, keys: list[tuple[str, str, str]], model: str):
+        super().__init__()
+        self.keys = list(keys)
+        self.model = model
+        self._cancel = False
+
+    def cancel(self):
+        self._cancel = True
+
+    def run(self):
+        ok = 0
+        failed = 0
+        total = len(self.keys)
+        rpm_limit, _tpm, _rpd = model_limits(self.model)
+        # Konservatif jika beberapa key ternyata milik project Google yang sama.
+        delay_s = max(1.0, 60.0 / max(1, rpm_limit) + 0.35)
+
+        for index, (key_id, name, secret) in enumerate(self.keys, 1):
+            if self._cancel:
+                self.cancelled.emit()
+                return
+            self.progress_changed.emit(index, total, name)
+            try:
+                result = GeminiClient(secret, self.model).test_connection()
+                self.key_ready.emit(key_id, result)
+                ok += 1
+            except Exception as exc:
+                self.key_failed.emit(key_id, str(exc))
+                failed += 1
+
+            if index < total:
+                waited = 0.0
+                while waited < delay_s:
+                    if self._cancel:
+                        self.cancelled.emit()
+                        return
+                    step = min(0.25, delay_s - waited)
+                    time.sleep(step)
+                    waited += step
+
+        self.done.emit(ok, failed)
+
 
 class FilmCutWorker(QThread):
     progress_changed = Signal(int, int, str)
