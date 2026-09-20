@@ -17,10 +17,16 @@ from .subtitles import SubtitleTrack, format_ms
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
 
-# Stage 1 is token-conscious: a wider storyboard + SRT, never the ±2 minute video.
-# Stage 2 sends short SILENT clips only when Stage 1 is uncertain.
-STORYBOARD_OFFSETS_MS = (-8000, -4000, -1000, 1000, 4000, 8000)
-FRAME_WIDTH = 384
+# Broad scene understanding: contact sheets + SRT, never a multi-minute video.
+CONTACT_SEGMENT_MS = 30_000
+CONTACT_FRAME_STEP_MS = 3_000
+CONTACT_COLS = 5
+CONTACT_ROWS = 2
+CONTACT_CELL_WIDTH = 192
+
+# Precise refinement after a real scene boundary has been found.
+STORYBOARD_OFFSETS_MS = (-5000, -1200, 1200, 5000)
+FRAME_WIDTH = 416
 DEEP_CHECK_CONFIDENCE = 0.72
 DEEP_CHECK_RADIUS_MS = 5000
 DEEP_CHECK_WIDTH = 360
@@ -96,6 +102,127 @@ class GeminiClient:
             "response": parsed,
             "usage": self.usage.__dict__.copy(),
         }
+
+    def analyze_scene_window(
+        self,
+        ffmpeg: str,
+        source: Path,
+        target_ms: int,
+        window_start_ms: int,
+        window_end_ms: int,
+        subtitles: SubtitleTrack | None,
+        previous_summary: str = "",
+        pass_label: str = "awal",
+    ) -> dict[str, Any]:
+        """Pahami satu rentang film sebagai rangkaian scene, bukan kandidat terpisah."""
+        start_ms = max(0, int(window_start_ms))
+        end_ms = max(start_ms + 1, int(window_end_ms))
+        segments: list[dict[str, Any]] = []
+        parts: list[dict[str, Any]] = [{
+            "text": _scene_window_prompt(
+                target_ms=target_ms,
+                window_start_ms=start_ms,
+                window_end_ms=end_ms,
+                previous_summary=previous_summary,
+                pass_label=pass_label,
+            )
+        }]
+
+        seg_start = start_ms
+        seg_index = 1
+        while seg_start < end_ms:
+            seg_end = min(end_ms, seg_start + CONTACT_SEGMENT_MS)
+            frame_times = list(range(seg_start, seg_end, CONTACT_FRAME_STEP_MS))
+            if not frame_times:
+                frame_times = [seg_start]
+            frame_times = frame_times[: CONTACT_COLS * CONTACT_ROWS]
+
+            srt_text = (
+                subtitles.between_text(seg_start, seg_end, max_chars=3400)
+                if subtitles else ""
+            )
+            mapping = " · ".join(
+                f"F{i + 1}={format_ms(t)}" for i, t in enumerate(frame_times)
+            )
+            parts.append({
+                "text": (
+                    f"SEGMENT {seg_index} | {format_ms(seg_start)}–{format_ms(seg_end)}\n"
+                    f"Urutan grid: kiri→kanan, baris atas lalu bawah. {mapping}\n"
+                    "SRT pada rentang yang SAMA:\n"
+                    + (srt_text or "(tidak ada subtitle pada segmen ini)")
+                )
+            })
+            sheet = extract_contact_sheet_jpeg(
+                ffmpeg,
+                source,
+                seg_start,
+                seg_end,
+                frame_step_ms=CONTACT_FRAME_STEP_MS,
+                cell_width=CONTACT_CELL_WIDTH,
+                cols=CONTACT_COLS,
+                rows=CONTACT_ROWS,
+            )
+            parts.append({
+                "inline_data": {
+                    "mime_type": "image/jpeg",
+                    "data": base64.b64encode(sheet).decode("ascii"),
+                },
+                "media_resolution": {"level": "MEDIA_RESOLUTION_LOW"},
+            })
+            segments.append({
+                "index": seg_index,
+                "start_ms": seg_start,
+                "end_ms": seg_end,
+                "frame_times": frame_times,
+            })
+            seg_start = seg_end
+            seg_index += 1
+
+        payload = {
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {
+                "temperature": 0.05,
+                "maxOutputTokens": 950,
+                "responseMimeType": "application/json",
+            },
+        }
+        data = self._post(payload, timeout=120)
+        text = _response_text(data)
+        try:
+            result = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Gemini tidak mengembalikan JSON valid untuk pemahaman scene.") from exc
+
+        decision = str(result.get("decision") or "").strip().upper()
+        allowed = {"CUT_FOUND", "NO_CUT", "EXPAND_FORWARD", "EXPAND_BACKWARD"}
+        if decision not in allowed:
+            raise RuntimeError("Gemini tidak mengembalikan decision scene yang valid.")
+        result["decision"] = decision
+        result["window_start_ms"] = start_ms
+        result["window_end_ms"] = end_ms
+        result["window_start"] = format_ms(start_ms)
+        result["window_end"] = format_ms(end_ms)
+        result["analysis_mode"] = "contact-sheet+srt"
+        result["contact_segments"] = len(segments)
+
+        if decision == "CUT_FOUND":
+            try:
+                seg_no = int(result.get("segment_index") or 0)
+                frame_no = int(result.get("frame_index") or 0)
+            except Exception as exc:
+                raise RuntimeError("CUT_FOUND tidak memiliki segment/frame yang valid.") from exc
+            if seg_no < 1 or seg_no > len(segments):
+                raise RuntimeError("segment_index di luar rentang contact sheet.")
+            segment = segments[seg_no - 1]
+            frame_times = segment["frame_times"]
+            if frame_no < 1 or frame_no > len(frame_times):
+                raise RuntimeError("frame_index di luar contact sheet.")
+            hint_ms = int(frame_times[frame_no - 1])
+            result["boundary_hint_ms"] = hint_ms
+            result["boundary_hint"] = format_ms(hint_ms)
+
+        result["usage"] = self.usage.__dict__.copy()
+        return result
 
     def verify_candidates(
         self,
