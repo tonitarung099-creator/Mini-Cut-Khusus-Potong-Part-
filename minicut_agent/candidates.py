@@ -185,6 +185,60 @@ def rank_candidates(
     safe = [c for c in result if c.subtitle_safe]
     return (safe or result)[:max(1, top_n)]
 
+
+def proximity_shortlist(
+    candidates: list[LocalCandidate],
+    reference_ms: int,
+    max_n: int = 4,
+) -> list[LocalCandidate]:
+    """Ambil kandidat terdekat tanpa kehilangan kandidat visual penting.
+
+    Dua slot pertama memprioritaskan kedekatan absolut. Slot berikutnya
+    memprioritaskan visual boundary terdekat, lalu diisi kandidat terdekat lain.
+    """
+    if not candidates:
+        return []
+    max_n = max(1, int(max_n))
+    nearest = sorted(
+        candidates,
+        key=lambda x: (
+            abs(int(x.time_ms) - int(reference_ms)),
+            -float(x.score),
+            int(x.time_ms),
+        ),
+    )
+    chosen: list[LocalCandidate] = []
+    seen: set[int] = set()
+
+    def add(item: LocalCandidate):
+        key = int(item.time_ms)
+        if key not in seen and len(chosen) < max_n:
+            chosen.append(item)
+            seen.add(key)
+
+    for item in nearest[: min(2, max_n)]:
+        add(item)
+
+    visual_nearest = [x for x in nearest if x.visual]
+    for item in visual_nearest:
+        add(item)
+        if len(chosen) >= max_n:
+            break
+
+    for item in nearest:
+        add(item)
+        if len(chosen) >= max_n:
+            break
+
+    chosen.sort(
+        key=lambda x: (
+            abs(int(x.time_ms) - int(reference_ms)),
+            -float(x.score),
+            int(x.time_ms),
+        )
+    )
+    return chosen
+
 def find_candidates_for_target(
     ffmpeg: str,
     source: Path,
