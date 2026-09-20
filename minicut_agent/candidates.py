@@ -128,7 +128,7 @@ def rank_candidates(
     visual_points: list[int],
     silence_points: list[int],
     subtitles: SubtitleTrack | None,
-    top_n: int = 3,
+    top_n: int = 6,
 ) -> list[LocalCandidate]:
     pool = list(visual_points)
     pool.extend(silence_points)
@@ -191,7 +191,7 @@ def find_candidates_for_target(
     target_ms: int,
     window_ms: int,
     subtitles: SubtitleTrack | None,
-    top_n: int = 3,
+    top_n: int = 6,
 ) -> list[LocalCandidate]:
     start_ms = max(0, target_ms - window_ms)
     end_ms = target_ms + window_ms
