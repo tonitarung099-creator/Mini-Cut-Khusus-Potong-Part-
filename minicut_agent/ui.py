@@ -1594,6 +1594,9 @@ class MiniCutWindow(QMainWindow):
             QMessageBox.critical(self, APP_TITLE, str(exc))
 
     def _begin_gemini_test(self, key_id: str):
+        if self.gemini_batch_worker and self.gemini_batch_worker.isRunning():
+            QMessageBox.information(self, APP_TITLE, "Cek semua API sedang berjalan.")
+            return
         if self.gemini_test_worker and self.gemini_test_worker.isRunning():
             QMessageBox.information(self, APP_TITLE, "Tes API sedang berjalan.")
             return
@@ -1620,6 +1623,163 @@ class MiniCutWindow(QMainWindow):
             QMessageBox.information(self, APP_TITLE, "Pilih satu API key di tabel.")
             return
         self._begin_gemini_test(key_id)
+
+    def _refresh_all_gemini_status(self):
+        self._refresh_gemini_key_views()
+        summaries = self.gemini_keys.summaries()
+        model = self._current_gemini_model()
+        ready = 0
+        limited = 0
+        error = 0
+        unknown = 0
+        for item in summaries:
+            status = str(self.gemini_keys.snapshot(item.id, model).get("status") or "unknown")
+            if status == "ready":
+                ready += 1
+            elif status == "limited":
+                limited += 1
+            elif status == "error":
+                error += 1
+            else:
+                unknown += 1
+        if hasattr(self, "gemini_batch_status_label"):
+            self.gemini_batch_status_label.setText(
+                f"Status lokal · SIAP {ready} · LIMIT {limited} · "
+                f"ERROR {error} · BELUM DICEK {unknown} · total {len(summaries)}"
+            )
+
+    def _use_ready_gemini_key(self):
+        model = self._current_gemini_model()
+        candidates = []
+        for item in self.gemini_keys.summaries():
+            snap = self.gemini_keys.snapshot(item.id, model)
+            if (
+                snap.get("status") == "ready"
+                and int(snap.get("rpm_remaining") or 0) > 0
+                and int(snap.get("rpd_remaining") or 0) > 0
+            ):
+                candidates.append((item, snap))
+
+        if not candidates:
+            QMessageBox.information(
+                self,
+                APP_TITLE,
+                "Belum ada API berstatus SIAP dengan sisa RPM/RPD lokal. "
+                "Gunakan 'Cek Semua API Online' atau tunggu jendela RPM pulih.",
+            )
+            return
+
+        # Manual one-click selection: prioritaskan sisa harian lalu sisa token menit.
+        candidates.sort(
+            key=lambda x: (
+                int(x[1].get("rpd_remaining") or 0),
+                int(x[1].get("tpm_remaining") or 0),
+                int(x[1].get("rpm_remaining") or 0),
+            ),
+            reverse=True,
+        )
+        item, snap = candidates[0]
+        self.gemini_keys.set_active(item.id)
+        self._refresh_gemini_key_views()
+        self.gemini_batch_status_label.setText(
+            f"API aktif: {item.name} · RPD sisa lokal "
+            f"{snap['rpd_remaining']}/{snap['rpd_limit']} · "
+            f"RPM sisa {snap['rpm_remaining']}/{snap['rpm_limit']}."
+        )
+
+    def _set_batch_test_controls(self, running: bool):
+        if hasattr(self, "gemini_test_all_btn"):
+            self.gemini_test_all_btn.setEnabled(not running)
+            self.gemini_cancel_all_btn.setEnabled(running)
+            self.gemini_test_selected_btn.setEnabled(not running)
+            self.gemini_refresh_all_btn.setEnabled(not running)
+            self.gemini_use_ready_btn.setEnabled(not running)
+
+    def _test_all_gemini_keys(self):
+        if self.gemini_batch_worker and self.gemini_batch_worker.isRunning():
+            return
+        summaries = self.gemini_keys.summaries()
+        if not summaries:
+            QMessageBox.information(self, APP_TITLE, "Belum ada Gemini API key.")
+            return
+
+        keys: list[tuple[str, str, str]] = []
+        unreadable = 0
+        for item in summaries:
+            try:
+                keys.append((item.id, item.name, self.gemini_keys.get_secret(item.id)))
+            except Exception as exc:
+                unreadable += 1
+                self.gemini_keys.mark_error(
+                    item.id, self._current_gemini_model(), str(exc)
+                )
+
+        if not keys:
+            self._refresh_gemini_key_views()
+            QMessageBox.warning(self, APP_TITLE, "Tidak ada API key yang dapat dibaca.")
+            return
+
+        model = self._current_gemini_model()
+        self.gemini_batch_status_label.setText(
+            f"Memulai cek online {len(keys)} API untuk {model}. "
+            "Tes dilakukan bertahap agar tidak membanjiri rate limit."
+            + (f" · {unreadable} key tidak dapat dibaca." if unreadable else "")
+        )
+        self._set_batch_test_controls(True)
+        self.gemini_batch_worker = GeminiBatchTestWorker(keys, model)
+        self.gemini_batch_worker.progress_changed.connect(self._batch_test_progress)
+        self.gemini_batch_worker.key_ready.connect(self._batch_test_ready)
+        self.gemini_batch_worker.key_failed.connect(self._batch_test_failed)
+        self.gemini_batch_worker.done.connect(self._batch_test_done)
+        self.gemini_batch_worker.cancelled.connect(self._batch_test_cancelled)
+        self.gemini_batch_worker.start()
+
+    def _batch_test_progress(self, index: int, total: int, name: str):
+        self.gemini_batch_status_label.setText(
+            f"Cek semua API {index}/{total} · {name} · model {self._current_gemini_model()}"
+        )
+
+    def _batch_test_ready(self, key_id: str, result: dict):
+        usage = result.get("usage") or {}
+        model = str(result.get("model") or self._current_gemini_model())
+        self.gemini_keys.record_usage(
+            key_id,
+            model,
+            requests=int(usage.get("requests") or 0),
+            prompt_tokens=int(usage.get("prompt_tokens") or 0),
+            status="ready",
+            checked=True,
+        )
+        self._refresh_gemini_key_views()
+
+    def _batch_test_failed(self, key_id: str, message: str):
+        self.gemini_keys.mark_error(
+            key_id, self._current_gemini_model(), message
+        )
+        self._refresh_gemini_key_views()
+
+    def _batch_test_done(self, ok: int, failed: int):
+        self.gemini_batch_worker = None
+        self._set_batch_test_controls(False)
+        self._refresh_gemini_key_views()
+        self.gemini_batch_status_label.setText(
+            f"Cek semua selesai · SIAP {ok} · gagal/limit {failed}. "
+            "Klik 'Pakai API SIAP' untuk memilih salah satu yang siap."
+        )
+
+    def _cancel_all_gemini_tests(self):
+        if self.gemini_batch_worker and self.gemini_batch_worker.isRunning():
+            self.gemini_batch_worker.cancel()
+            self.gemini_batch_status_label.setText(
+                "Membatalkan cek semua API setelah tes aktif selesai…"
+            )
+            self.gemini_cancel_all_btn.setEnabled(False)
+
+    def _batch_test_cancelled(self):
+        self.gemini_batch_worker = None
+        self._set_batch_test_controls(False)
+        self._refresh_gemini_key_views()
+        self.gemini_batch_status_label.setText("Cek semua API dibatalkan.")
 
     # ---------- AI Film Cut / Gemini ----------
     def _choose_srt(self):
