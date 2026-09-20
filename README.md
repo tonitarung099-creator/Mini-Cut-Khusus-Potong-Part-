@@ -4,8 +4,9 @@ Aplikasi desktop Windows untuk membagi film/video menjadi beberapa part dengan b
 
 ## Fitur utama
 
-- **AI Film Cut visual-first** — mengutamakan perpindahan scene/konteks visual besar seperti pindah lokasi, siang ↔ malam, interior ↔ eksterior, atau adegan baru.
-- **Hemat Gemini API** — MiniCut mencari kandidat secara lokal. Gemini hanya menerima **3 frame kecil per kandidat + SRT + metadata lokal**, bukan video penuh dan bukan audio.
+- **Scene Boundary Analyzer** — mengikuti logika pemotongan berbasis keutuhan adegan: patokan 15 menit hanya referensi, shot biasa bukan scene baru, dan keutuhan alur lebih penting daripada tepat waktu.
+- **Analisis adaptif Gemini** — MiniCut mencari **hingga 6 kandidat secara lokal**, lalu Gemini membandingkan **6-frame storyboard per kandidat + SRT**.
+- **Deep Check hemat** — video visual pendek ±5 detik hanya dikirim untuk 1–2 kandidat ketika storyboard masih ragu. Video ±2 menit tidak dikirim dan Deep Check tidak mengirim audio.
 - **SRT sebagai penjaga dialog** — membantu menghindari cut di tengah dialog/percakapan.
 - **Exact-frame resolver** — keputusan AI dikunci ke PTS frame asli dari master.
 - **SmartCut Frame Accurate** — default export; meminimalkan re-encode di sekitar titik potong.
@@ -23,15 +24,17 @@ Target sekitar 15 menit
         ↓
 MiniCut lokal scan ± window
         ↓
-kandidat visual / silence / SRT
+hingga 6 kandidat scene
         ↓
-Gemini: 3 frame + SRT
+Gemini: storyboard 6 frame + SRT
         ↓
-pilih batas scene paling natural
-        ↓
-MiniCut kunci ke PTS frame master
-        ↓
-SmartCut export
+cukup yakin? ── tidak ──→ Deep Check video visual pendek kandidat terbaik
+        ↓ ya                         ↓
+        └──────── pilih batas scene natural
+                         ↓
+              MiniCut kunci ke PTS frame master
+                         ↓
+                   SmartCut export
 ```
 
 Target 15 menit adalah patokan, bukan batas wajib. Perpindahan scene yang natural lebih diprioritaskan.
