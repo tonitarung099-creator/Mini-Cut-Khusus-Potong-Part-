@@ -1696,6 +1696,11 @@ class MiniCutWindow(QMainWindow):
             self.gemini_use_ready_btn.setEnabled(not running)
 
     def _test_all_gemini_keys(self):
+        if self.film_cut_worker and self.film_cut_worker.isRunning():
+            QMessageBox.information(
+                self, APP_TITLE, "Tunggu AI Film Cut selesai sebelum Cek Semua API."
+            )
+            return
         if self.gemini_batch_worker and self.gemini_batch_worker.isRunning():
             return
         summaries = self.gemini_keys.summaries()
@@ -1838,6 +1843,11 @@ class MiniCutWindow(QMainWindow):
         QMessageBox.critical(self, APP_TITLE, "Gemini API gagal:\n" + message)
 
     def _start_film_cut(self):
+        if self.gemini_batch_worker and self.gemini_batch_worker.isRunning():
+            QMessageBox.information(
+                self, APP_TITLE, "Cek Semua API sedang berjalan. Tunggu atau batalkan dulu."
+            )
+            return
         if not self.model.source:
             QMessageBox.warning(self, APP_TITLE, "Buka video terlebih dahulu.")
             return
@@ -2049,13 +2059,22 @@ class MiniCutWindow(QMainWindow):
         self.status.setText("AI Film Cut gagal.")
         self.film_status_label.setText("Analisis berhenti. Hasil yang sudah selesai disimpan di cache.")
         lower = message.lower()
+        limited_failure = (
+            "429" in lower or "quota" in lower or "rate limit" in lower
+        )
         if self._film_active_key_id and (
-            "gemini" in lower or "429" in lower or "quota" in lower or "rate limit" in lower
+            "gemini" in lower or limited_failure
         ):
             self.gemini_keys.mark_error(
                 self._film_active_key_id,
                 self._film_active_model,
                 message,
+            )
+        if limited_failure and hasattr(self, "gemini_batch_status_label"):
+            self.gemini_batch_status_label.setText(
+                "API aktif terkena LIMIT setelah retry/backoff. "
+                "Buka tab Gemini API → Cek Semua API Online → Pakai API SIAP, "
+                "lalu jalankan Analisis Film lagi. Cache hasil sebelumnya tetap ada."
             )
         self._refresh_gemini_key_views()
         QMessageBox.critical(self, APP_TITLE, "AI Film Cut gagal:\n" + message)
@@ -2341,6 +2360,9 @@ class MiniCutWindow(QMainWindow):
             self._begin_load(path)
 
     def closeEvent(self, event):
+        if self.gemini_batch_worker and self.gemini_batch_worker.isRunning():
+            self.gemini_batch_worker.cancel()
+            self.gemini_batch_worker.wait(5000)
         if self.proxy_worker and self.proxy_worker.isRunning():
             self.proxy_worker.cancel()
             self.proxy_worker.wait(5000)
