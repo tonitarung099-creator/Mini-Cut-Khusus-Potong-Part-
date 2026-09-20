@@ -669,9 +669,10 @@ class MiniCutWindow(QMainWindow):
         layout = QVBoxLayout(w)
 
         intro = QLabel(
-            "Mode visual-first + frame-accurate: MiniCut mengutamakan perpindahan scene besar "
-            "(lokasi/waktu/suasana), lalu Gemini melihat 3 frame kecil per kandidat + SRT. "
-            "SRT menjaga dialog tetap utuh. Hasil dikunci ke frame PTS nyata dan SmartCut."
+            "Mode Scene Boundary Analyzer: MiniCut lokal mencari beberapa kandidat di sekitar "
+            "patokan, Gemini membandingkan storyboard 6 frame + SRT, lalu Deep Check video "
+            "visual pendek hanya dipakai jika tahap pertama masih ragu. Tidak ada video ±2 menit "
+            "yang dikirim. Hasil akhir tetap dikunci ke frame PTS nyata dan SmartCut."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -714,8 +715,11 @@ class MiniCutWindow(QMainWindow):
         self.film_window.setSuffix(" menit")
         self.film_cache = QCheckBox("Simpan hasil parsial agar bisa dilanjutkan")
         self.film_cache.setChecked(True)
+        self.film_deep_check = QCheckBox("Deep Check otomatis jika storyboard masih ragu")
+        self.film_deep_check.setChecked(True)
         form.addRow("Target part", self.film_interval)
         form.addRow("Cari sekitar target", self.film_window)
+        form.addRow("Verifikasi", self.film_deep_check)
         form.addRow("Resume", self.film_cache)
         layout.addLayout(form)
 
@@ -1585,8 +1589,9 @@ class MiniCutWindow(QMainWindow):
             model=self._film_active_model,
             interval_ms=self.film_interval.value() * 60_000,
             window_ms=self.film_window.value() * 60_000,
-            top_n=3,
+            top_n=6,
             use_cache=self.film_cache.isChecked(),
+            allow_deep_check=self.film_deep_check.isChecked(),
         )
         self.film_cut_worker.progress_changed.connect(self._film_cut_progress)
         self.film_cut_worker.target_result.connect(self._film_cut_target_result)
@@ -1595,9 +1600,12 @@ class MiniCutWindow(QMainWindow):
         self.film_cut_worker.failed.connect(self._film_cut_failed)
         self.film_cut_worker.cancelled.connect(self._film_cut_cancelled)
         self.film_status_label.setText(
-            "Analisis visual-first: kandidat lokal → 3 frame+SRT Gemini → frame resolver."
+            "Scene Boundary Analyzer: kandidat lokal → storyboard 6 frame + SRT → "
+            "Deep Check jika perlu → frame resolver."
         )
-        self._log("AI Film Cut visual-first: scene kandidat → Gemini 3 frame+SRT → frame PTS nyata.")
+        self._log(
+            "AI Film Cut: 6 kandidat lokal → storyboard+SRT → Deep Check adaptif → frame PTS nyata."
+        )
         self.film_cut_worker.start()
 
     def _film_cut_progress(self, index: int, total: int, stage: str):
@@ -1634,7 +1642,14 @@ class MiniCutWindow(QMainWindow):
         )
         intent = str(result.get("cut_intent") or "semantic_boundary")
         frame_ok = bool(result.get("frame_verified"))
-        status_text = "REVIEW" if review else ("CACHE" if result.get("cached") else "OK")
+        if review:
+            status_text = "REVIEW"
+        elif result.get("cached"):
+            status_text = "CACHE"
+        elif result.get("deep_check_used"):
+            status_text = "DEEP · OK"
+        else:
+            status_text = "STORYBOARD · OK"
         if not frame_ok:
             status_text += " · NO FRAME LOCK"
         values = [
