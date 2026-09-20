@@ -177,7 +177,7 @@ class FilmCutWorker(QThread):
     failed = Signal(str)
     cancelled = Signal()
 
-    CACHE_VERSION = 5
+    CACHE_VERSION = 6
 
     def __init__(
         self,
@@ -190,9 +190,12 @@ class FilmCutWorker(QThread):
         model: str,
         interval_ms: int = 15 * 60_000,
         window_ms: int = 2 * 60_000,
-        top_n: int = 6,
+        top_n: int = 4,
         use_cache: bool = True,
         allow_deep_check: bool = True,
+        expansion_step_ms: int = 3 * 60_000,
+        max_expand_ms: int = 15 * 60_000,
+        refine_window_ms: int = 20_000,
     ):
         super().__init__()
         self.ffmpeg = ffmpeg
@@ -207,6 +210,9 @@ class FilmCutWorker(QThread):
         self.top_n = int(top_n)
         self.use_cache = bool(use_cache)
         self.allow_deep_check = bool(allow_deep_check)
+        self.expansion_step_ms = max(60_000, int(expansion_step_ms))
+        self.max_expand_ms = max(0, int(max_expand_ms))
+        self.refine_window_ms = max(8_000, int(refine_window_ms))
         self._cancel = False
 
     @property
@@ -229,11 +235,18 @@ class FilmCutWorker(QThread):
                 and int(data.get("window_ms") or 0) == self.window_ms
                 and int(data.get("top_n") or 0) == self.top_n
                 and bool(data.get("allow_deep_check")) == self.allow_deep_check
+                and int(data.get("expansion_step_ms") or 0) == self.expansion_step_ms
+                and int(data.get("max_expand_ms") or 0) == self.max_expand_ms
+                and int(data.get("refine_window_ms") or 0) == self.refine_window_ms
                 and data.get("model") == self.model
             )
             if not valid:
                 return {}
-            return {int(x["target_ms"]): x for x in data.get("results", []) if "target_ms" in x}
+            return {
+                int(x["target_ms"]): x
+                for x in data.get("results", [])
+                if "target_ms" in x and int(x.get("selected_time_ms") or 0) > 0
+            }
         except Exception:
             return {}
 
@@ -248,91 +261,251 @@ class FilmCutWorker(QThread):
             "window_ms": self.window_ms,
             "top_n": self.top_n,
             "allow_deep_check": self.allow_deep_check,
+            "expansion_step_ms": self.expansion_step_ms,
+            "max_expand_ms": self.max_expand_ms,
+            "refine_window_ms": self.refine_window_ms,
             "model": self.model,
             "results": results,
         }
         try:
-            self.cache_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            self.cache_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
         except Exception:
             pass
+
+    def _cancelled(self) -> bool:
+        if self._cancel:
+            self.cancelled.emit()
+            return True
+        return False
 
     def run(self):
         try:
             subtitles = SubtitleTrack.load(self.srt_path)
             client = GeminiClient(self.api_key, self.model)
-            targets = target_times(self.duration_ms, self.interval_ms)
             cached = self._load_cache()
             results: list[dict] = []
 
-            for index, target_ms in enumerate(targets, 1):
-                if self._cancel:
-                    self.cancelled.emit()
+            # Target berikutnya dihitung dari CUT SEBELUMNYA, bukan timestamp absolut.
+            # Jadi jika Part 1 berakhir 18:12, target Part 2 menjadi sekitar 33:12.
+            previous_cut_ms = 0
+            part_index = 1
+            estimated_total = max(1, self.duration_ms // max(1, self.interval_ms))
+            min_tail_ms = 5 * 60_000
+
+            while True:
+                target_ms = previous_cut_ms + self.interval_ms
+                if target_ms >= self.duration_ms:
+                    break
+                if self.duration_ms - target_ms < min_tail_ms:
+                    break
+                if self._cancelled():
                     return
 
-                self.progress_changed.emit(index, len(targets), "Mencari kandidat lokal")
                 if target_ms in cached:
                     result = dict(cached[target_ms])
                     result["cached"] = True
                     results.append(result)
                     self.target_result.emit(result)
+                    previous_cut_ms = int(result["selected_time_ms"])
+                    part_index += 1
                     continue
+
+                initial_start = max(previous_cut_ms, target_ms - self.window_ms)
+                initial_end = min(self.duration_ms, target_ms + self.window_ms)
+                pass_start = initial_start
+                pass_end = initial_end
+                expanded_ms = 0
+                pass_no = 1
+                previous_summary = ""
+                broad: dict = {}
+
+                while True:
+                    if self._cancelled():
+                        return
+                    stage = (
+                        f"Memahami scene {format_ms(pass_start)}–{format_ms(pass_end)} "
+                        f"· contact sheet + SRT"
+                    )
+                    self.progress_changed.emit(
+                        part_index, estimated_total, stage
+                    )
+                    broad = client.analyze_scene_window(
+                        self.ffmpeg,
+                        self.source,
+                        target_ms,
+                        pass_start,
+                        pass_end,
+                        subtitles,
+                        previous_summary=previous_summary,
+                        pass_label=(
+                            "awal ± target" if pass_no == 1
+                            else f"perluasan +{expanded_ms // 60_000} menit"
+                        ),
+                    )
+                    self.usage_changed.emit(client.usage.__dict__.copy())
+                    if self._cancelled():
+                        return
+
+                    decision = str(broad.get("decision") or "").upper()
+                    if decision == "CUT_FOUND":
+                        break
+
+                    previous_summary = str(
+                        broad.get("continuity_summary")
+                        or broad.get("reason")
+                        or previous_summary
+                    )
+
+                    if pass_end >= self.duration_ms or expanded_ms >= self.max_expand_ms:
+                        no_cut_result = {
+                            "target_ms": target_ms,
+                            "target": format_ms(target_ms),
+                            "selected_time_ms": 0,
+                            "selected_time": "",
+                            "decision": "NO_CUT_MAX_EXPAND",
+                            "needs_review": True,
+                            "confidence": float(broad.get("confidence") or 0.0),
+                            "reason": (
+                                str(broad.get("reason") or "")
+                                + " · Tidak ditemukan boundary natural dalam batas perluasan."
+                            ).strip(" ·"),
+                            "continuity_summary": previous_summary,
+                            "expanded_ms": expanded_ms,
+                            "analysis_mode": "contact-sheet+srt-expand",
+                            "cached": False,
+                            "usage": client.usage.__dict__.copy(),
+                        }
+                        results.append(no_cut_result)
+                        self._save_cache(results)
+                        self.target_result.emit(no_cut_result)
+                        self.usage_changed.emit(client.usage.__dict__.copy())
+                        # Jangan membuat cut palsu. Biarkan sisa film menjadi satu part
+                        # dan minta review manual jika batas perluasan maksimum tercapai.
+                        self.done.emit(results)
+                        return
+
+                    old_end = pass_end
+                    new_end = min(
+                        self.duration_ms,
+                        old_end + self.expansion_step_ms,
+                    )
+                    # Kirim hanya bagian tambahan + overlap 30 detik untuk kontinuitas.
+                    pass_start = max(previous_cut_ms, old_end - 30_000)
+                    pass_end = new_end
+                    expanded_ms += max(0, new_end - old_end)
+                    pass_no += 1
+
+                hint_ms = int(broad.get("boundary_hint_ms") or target_ms)
+                self.progress_changed.emit(
+                    part_index,
+                    estimated_total,
+                    f"Refinement boundary sekitar {format_ms(hint_ms)}",
+                )
 
                 local = find_candidates_for_target(
                     self.ffmpeg,
                     self.source,
-                    target_ms,
-                    self.window_ms,
+                    hint_ms,
+                    self.refine_window_ms,
                     subtitles,
                     top_n=self.top_n,
                 )
-                if self._cancel:
-                    self.cancelled.emit()
+                if self._cancelled():
                     return
 
-                self.progress_changed.emit(
-                    index,
-                    len(targets),
-                    "Gemini storyboard + SRT · Deep Check bila perlu",
-                )
                 verdict = client.verify_candidates(
                     self.ffmpeg,
                     self.source,
-                    target_ms,
+                    hint_ms,
                     local,
                     subtitles,
                     allow_deep_check=self.allow_deep_check,
+                    force_deep_check=bool(broad.get("needs_video_check")),
                 )
-                if self._cancel:
-                    self.cancelled.emit()
+                self.usage_changed.emit(client.usage.__dict__.copy())
+                if self._cancelled():
                     return
 
-                self.progress_changed.emit(index, len(targets), "Mengunci ke frame nyata")
+                self.progress_changed.emit(
+                    part_index, estimated_total, "Mengunci ke frame PTS master"
+                )
                 resolved = resolve_semantic_frame(
                     self.source,
                     self.ffprobe,
-                    preferred_ms=int(verdict.get("preferred_time_ms") or verdict.get("candidate_time_ms") or target_ms),
-                    zone_start_ms=int(verdict.get("boundary_start_ms") or verdict.get("candidate_time_ms") or target_ms),
-                    zone_end_ms=int(verdict.get("boundary_end_ms") or verdict.get("candidate_time_ms") or target_ms),
+                    preferred_ms=int(
+                        verdict.get("preferred_time_ms")
+                        or verdict.get("candidate_time_ms")
+                        or hint_ms
+                    ),
+                    zone_start_ms=int(
+                        verdict.get("boundary_start_ms")
+                        or verdict.get("candidate_time_ms")
+                        or hint_ms
+                    ),
+                    zone_end_ms=int(
+                        verdict.get("boundary_end_ms")
+                        or verdict.get("candidate_time_ms")
+                        or hint_ms
+                    ),
                     subtitles=subtitles,
                     prefer_before_ms=verdict.get("new_content_starts_ms"),
                 )
-                verdict["semantic_preferred_ms"] = int(verdict.get("preferred_time_ms") or 0)
-                verdict["semantic_preferred_time"] = (
-                    verdict.get("candidate_time")
-                    if not verdict.get("preferred_time_ms")
-                    else format_ms(int(verdict["preferred_time_ms"]))
+
+                selected_ms = int(resolved["time_ms"])
+                if selected_ms <= previous_cut_ms:
+                    raise RuntimeError(
+                        "Boundary AI tidak berada setelah cut sebelumnya."
+                    )
+
+                verdict["target_ms"] = target_ms
+                verdict["target"] = format_ms(target_ms)
+                verdict["broad_window_start_ms"] = int(broad.get("window_start_ms") or 0)
+                verdict["broad_window_end_ms"] = int(broad.get("window_end_ms") or 0)
+                verdict["broad_decision"] = str(broad.get("decision") or "")
+                verdict["broad_reason"] = str(broad.get("reason") or "")
+                verdict["continuity_summary"] = str(
+                    broad.get("continuity_summary") or ""
                 )
-                verdict["selected_time_ms"] = int(resolved["time_ms"])
+                verdict["expanded_ms"] = expanded_ms
+                verdict["boundary_hint_ms"] = hint_ms
+                verdict["boundary_hint"] = format_ms(hint_ms)
+                verdict["semantic_preferred_ms"] = int(
+                    verdict.get("preferred_time_ms") or 0
+                )
+                verdict["semantic_preferred_time"] = format_ms(
+                    int(
+                        verdict.get("preferred_time_ms")
+                        or verdict.get("candidate_time_ms")
+                        or hint_ms
+                    )
+                )
+                verdict["selected_time_ms"] = selected_ms
                 verdict["selected_time"] = str(resolved["time"])
                 verdict["frame_verified"] = bool(resolved.get("frame_verified"))
-                verdict["frame_delta_ms"] = int(resolved.get("frame_delta_ms") or 0)
-                verdict["frame_resolution_reason"] = str(resolved.get("reason") or "")
-                verdict["local_candidates"] = [c.to_dict() for c in local]
+                verdict["frame_delta_ms"] = int(
+                    resolved.get("frame_delta_ms") or 0
+                )
+                verdict["frame_resolution_reason"] = str(
+                    resolved.get("reason") or ""
+                )
+                verdict["local_candidates"] = [x.to_dict() for x in local]
+                verdict["analysis_mode"] = (
+                    "contact-sheet+srt-expand+refine"
+                    + ("+deep-video" if verdict.get("deep_check_used") else "")
+                )
                 verdict["cached"] = False
+                verdict["usage"] = client.usage.__dict__.copy()
+
                 results.append(verdict)
                 self._save_cache(results)
                 self.target_result.emit(verdict)
                 self.usage_changed.emit(client.usage.__dict__.copy())
+
+                previous_cut_ms = selected_ms
+                part_index += 1
 
             self.done.emit(results)
         except Exception as exc:
