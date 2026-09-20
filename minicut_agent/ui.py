@@ -44,7 +44,7 @@ class TimelineSlider(QSlider):
         if not self.marks or self.maximum() <= 0:
             return
         painter = QPainter(self)
-        painter.setPen(QPen(QColor("#ffb547"), 2))
+        painter.setPen(QPen(QColor("#9b7bff"), 2))
         width = max(1, self.width() - 12)
         for mark in self.marks:
             x = 6 + int(width * mark / self.maximum())
@@ -555,13 +555,25 @@ class MiniCutWindow(QMainWindow):
     def _parts_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
+        layout.setContentsMargins(12, 8, 12, 10)
+        layout.setSpacing(7)
+        header = QHBoxLayout()
+        timeline_title = QLabel("TIMELINE PARTS")
+        timeline_title.setObjectName("SectionTitle")
         self.info_label = QLabel("Belum ada video.")
+        self.info_label.setObjectName("MutedLabel")
         self.info_label.setWordWrap(True)
-        layout.addWidget(self.info_label)
+        header.addWidget(timeline_title)
+        header.addSpacing(12)
+        header.addWidget(self.info_label, 1)
+        layout.addLayout(header)
 
         self.parts_table = QTableWidget(0, 4)
         self.parts_table.setHorizontalHeaderLabels(["Part", "Mulai", "Selesai", "Durasi"])
         self.parts_table.horizontalHeader().setStretchLastSection(True)
+        self.parts_table.setAlternatingRowColors(True)
+        self.parts_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.parts_table.setMinimumHeight(120)
         layout.addWidget(self.parts_table, 1)
 
         row1 = QHBoxLayout()
@@ -710,6 +722,7 @@ class MiniCutWindow(QMainWindow):
         actions = QHBoxLayout()
         self.gemini_test_btn = QPushButton("Tes API")
         self.film_analyze_btn = QPushButton("Analisis Film")
+        self.film_analyze_btn.setObjectName("PrimaryButton")
         self.film_cancel_btn = QPushButton("Batalkan")
         self.film_apply_btn = QPushButton("Terapkan Semua Cut")
         self.film_cancel_btn.setEnabled(False)
@@ -731,6 +744,8 @@ class MiniCutWindow(QMainWindow):
             ["Target", "Batas AI", "Frame final", "Intent", "Confidence", "Status", "Alasan"]
         )
         self.film_table.horizontalHeader().setStretchLastSection(True)
+        self.film_table.setAlternatingRowColors(True)
+        self.film_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         layout.addWidget(self.film_table, 1)
 
         self.srt_btn.clicked.connect(self._choose_srt)
@@ -1032,8 +1047,30 @@ class MiniCutWindow(QMainWindow):
 
     def _playback_rate_changed(self, *_):
         rate = self._current_playback_rate()
+
+        # High-speed review is visual-first. Muting 3x/4x avoids expensive
+        # audio time-stretching on Windows multimedia backends.
+        fast_visual = rate >= 3.0
+        self.audio.setMuted(fast_visual)
+        if hasattr(self, "review_badge"):
+            self.review_badge.setText(
+                "SMOOTH REVIEW · AUDIO OFF" if fast_visual else "SMOOTH REVIEW"
+            )
+
+        # Prefer the lightweight proxy for accelerated review unless user
+        # explicitly selected Original.
+        if (
+            rate > 1.0
+            and self.preview_combo.currentData() == "proxy"
+            and self.preview_proxy
+            and self.preview_proxy.is_file()
+        ):
+            self._switch_player_media(self.preview_proxy)
         self.player.setPlaybackRate(rate)
-        self._log(f"Playback speed: {rate:g}x")
+        self._log(
+            f"Playback speed: {rate:g}x"
+            + (" · audio preview off" if fast_visual else "")
+        )
 
     def _load_frame_pts_window(self, center_ms: int, radius_ms: int = 2500) -> list[int]:
         if not self.model.source:
