@@ -20,16 +20,16 @@ API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
 
 # Broad scene understanding: contact sheets + SRT, never a multi-minute video.
 CONTACT_SEGMENT_MS = 30_000
-CONTACT_FRAME_STEP_MS = 3_000
+CONTACT_FRAME_STEP_MS = 2_000
 CONTACT_COLS = 5
-CONTACT_ROWS = 2
-CONTACT_CELL_WIDTH = 192
+CONTACT_ROWS = 3
+CONTACT_CELL_WIDTH = 168
 
 # Precise refinement after a real scene boundary has been found.
 STORYBOARD_OFFSETS_MS = (-5000, -1200, 1200, 5000)
 FRAME_WIDTH = 416
 DEEP_CHECK_CONFIDENCE = 0.72
-DEEP_CHECK_RADIUS_MS = 8000
+DEEP_CHECK_RADIUS_MS = 10_000
 DEEP_CHECK_WIDTH = 360
 DEEP_CHECK_FPS = 8
 SEMANTIC_ZONE_LIMIT_MS = 1500
