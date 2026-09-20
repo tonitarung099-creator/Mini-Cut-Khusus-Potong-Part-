@@ -536,7 +536,7 @@ preferred_offset_ms boleh diisi dalam ±1500 ms. Jika pusat sudah tepat, gunakan
 
 Kembalikan HANYA JSON valid:
 {{
-  "selected_candidate_index": ${candidate_indexes[0]},
+  "selected_candidate_index": {candidate_indexes[0]},
   "preferred_offset_ms": 0,
   "confidence": 0.0,
   "scene_change": true,
