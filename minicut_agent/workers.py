@@ -177,7 +177,7 @@ class FilmCutWorker(QThread):
     failed = Signal(str)
     cancelled = Signal()
 
-    CACHE_VERSION = 6
+    CACHE_VERSION = 7
 
     def __init__(
         self,
@@ -288,50 +288,81 @@ class FilmCutWorker(QThread):
             cached = self._load_cache()
             results: list[dict] = []
 
-            # Target berikutnya dihitung dari CUT SEBELUMNYA, bukan timestamp absolut.
-            # Jadi jika Part 1 berakhir 18:12, target Part 2 menjadi sekitar 33:12.
+            # Grid target SELALU absolut: 15, 30, 45, 60 menit, dst.
+            # Boundary natural boleh bergeser dari target, tetapi tidak menggeser
+            # target berikutnya. Contoh: cut target 15 ditemukan di 18:00,
+            # target selanjutnya tetap 30:00.
+            targets = target_times(self.duration_ms, self.interval_ms)
+            estimated_total = max(1, len(targets))
             previous_cut_ms = 0
-            part_index = 1
-            estimated_total = max(1, self.duration_ms // max(1, self.interval_ms))
-            min_tail_ms = 5 * 60_000
 
-            while True:
-                target_ms = previous_cut_ms + self.interval_ms
-                if target_ms >= self.duration_ms:
-                    break
-                if self.duration_ms - target_ms < min_tail_ms:
-                    break
+            for part_index, target_ms in enumerate(targets, 1):
                 if self._cancelled():
                     return
+
+                # Jika boundary target sebelumnya sampai melewati target nominal ini,
+                # jangan membuat cut mundur/duplikat. Tetap catat bahwa grid ini dilewati.
+                if target_ms <= previous_cut_ms:
+                    skipped = {
+                        "target_ms": target_ms,
+                        "target": format_ms(target_ms),
+                        "selected_time_ms": 0,
+                        "selected_time": "",
+                        "decision": "SKIPPED_AFTER_PREVIOUS_CUT",
+                        "needs_review": False,
+                        "confidence": 1.0,
+                        "reason": (
+                            "Target nominal sudah terlewati oleh boundary natural "
+                            "target sebelumnya; tidak membuat cut tambahan."
+                        ),
+                        "analysis_mode": "fixed-grid-skip",
+                        "cached": False,
+                        "usage": client.usage.__dict__.copy(),
+                    }
+                    results.append(skipped)
+                    self.target_result.emit(skipped)
+                    continue
 
                 if target_ms in cached:
                     result = dict(cached[target_ms])
                     result["cached"] = True
                     results.append(result)
                     self.target_result.emit(result)
-                    previous_cut_ms = int(result["selected_time_ms"])
-                    part_index += 1
+                    selected_cached = int(result.get("selected_time_ms") or 0)
+                    if selected_cached > previous_cut_ms:
+                        previous_cut_ms = selected_cached
                     continue
 
                 initial_start = max(previous_cut_ms, target_ms - self.window_ms)
                 initial_end = min(self.duration_ms, target_ms + self.window_ms)
+
+                # Jangan biarkan ekspansi target sekarang mengambil wilayah target
+                # nominal berikutnya. Target berikutnya harus tetap dianalisis sendiri.
+                next_target_ms = target_ms + self.interval_ms
+                search_ceiling = min(
+                    self.duration_ms,
+                    max(initial_end, next_target_ms - 30_000),
+                )
+
                 pass_start = initial_start
-                pass_end = initial_end
+                pass_end = min(initial_end, search_ceiling)
                 expanded_ms = 0
                 pass_no = 1
                 previous_summary = ""
                 broad: dict = {}
+                found_cut = False
 
                 while True:
                     if self._cancelled():
                         return
+
                     stage = (
-                        f"Memahami scene {format_ms(pass_start)}–{format_ms(pass_end)} "
+                        f"Target {format_ms(target_ms)} · memahami "
+                        f"{format_ms(pass_start)}–{format_ms(pass_end)} "
                         f"· contact sheet + SRT"
                     )
-                    self.progress_changed.emit(
-                        part_index, estimated_total, stage
-                    )
+                    self.progress_changed.emit(part_index, estimated_total, stage)
+
                     broad = client.analyze_scene_window(
                         self.ffmpeg,
                         self.source,
@@ -341,7 +372,8 @@ class FilmCutWorker(QThread):
                         subtitles,
                         previous_summary=previous_summary,
                         pass_label=(
-                            "awal ± target" if pass_no == 1
+                            "awal ± target"
+                            if pass_no == 1
                             else f"perluasan +{expanded_ms // 60_000} menit"
                         ),
                     )
@@ -351,6 +383,7 @@ class FilmCutWorker(QThread):
 
                     decision = str(broad.get("decision") or "").upper()
                     if decision == "CUT_FOUND":
+                        found_cut = True
                         break
 
                     previous_summary = str(
@@ -359,22 +392,26 @@ class FilmCutWorker(QThread):
                         or previous_summary
                     )
 
-                    if pass_end >= self.duration_ms or expanded_ms >= self.max_expand_ms:
+                    reached_limit = (
+                        pass_end >= search_ceiling
+                        or expanded_ms >= self.max_expand_ms
+                    )
+                    if reached_limit:
                         no_cut_result = {
                             "target_ms": target_ms,
                             "target": format_ms(target_ms),
                             "selected_time_ms": 0,
                             "selected_time": "",
-                            "decision": "NO_CUT_MAX_EXPAND",
-                            "needs_review": True,
+                            "decision": "NO_CUT",
+                            "needs_review": False,
                             "confidence": float(broad.get("confidence") or 0.0),
                             "reason": (
                                 str(broad.get("reason") or "")
-                                + " · Tidak ditemukan boundary natural dalam batas perluasan."
+                                + " · Tidak ada boundary natural sebelum area target berikutnya."
                             ).strip(" ·"),
                             "continuity_summary": previous_summary,
                             "expanded_ms": expanded_ms,
-                            "analysis_mode": "contact-sheet+srt-expand",
+                            "analysis_mode": "contact-sheet+srt-expand-no-cut",
                             "cached": False,
                             "usage": client.usage.__dict__.copy(),
                         }
@@ -382,27 +419,29 @@ class FilmCutWorker(QThread):
                         self._save_cache(results)
                         self.target_result.emit(no_cut_result)
                         self.usage_changed.emit(client.usage.__dict__.copy())
-                        # Jangan membuat cut palsu. Biarkan sisa film menjadi satu part
-                        # dan minta review manual jika batas perluasan maksimum tercapai.
-                        self.done.emit(results)
-                        return
+                        break
 
                     old_end = pass_end
                     new_end = min(
-                        self.duration_ms,
+                        search_ceiling,
                         old_end + self.expansion_step_ms,
                     )
-                    # Kirim hanya bagian tambahan + overlap 30 detik untuk kontinuitas.
+                    # Hanya bagian tambahan yang dikirim, dengan overlap 30 detik
+                    # untuk menjaga kontinuitas visual + subtitle.
                     pass_start = max(previous_cut_ms, old_end - 30_000)
                     pass_end = new_end
                     expanded_ms += max(0, new_end - old_end)
                     pass_no += 1
 
+                if not found_cut:
+                    # Grid selanjutnya tetap 30/45/60 dst.; NO_CUT tidak menggeser target.
+                    continue
+
                 hint_ms = int(broad.get("boundary_hint_ms") or target_ms)
                 self.progress_changed.emit(
                     part_index,
                     estimated_total,
-                    f"Refinement boundary sekitar {format_ms(hint_ms)}",
+                    f"Target {format_ms(target_ms)} · refinement sekitar {format_ms(hint_ms)}",
                 )
 
                 local = find_candidates_for_target(
@@ -460,6 +499,31 @@ class FilmCutWorker(QThread):
                         "Boundary AI tidak berada setelah cut sebelumnya."
                     )
 
+                # Boundary target ini juga tidak boleh masuk terlalu jauh ke area
+                # target nominal berikutnya.
+                if selected_ms >= search_ceiling:
+                    no_cut_result = {
+                        "target_ms": target_ms,
+                        "target": format_ms(target_ms),
+                        "selected_time_ms": 0,
+                        "selected_time": "",
+                        "decision": "NO_CUT",
+                        "needs_review": True,
+                        "confidence": float(verdict.get("confidence") or 0.0),
+                        "reason": (
+                            "Boundary hasil refinement sudah masuk area target berikutnya; "
+                            "cut tidak diterapkan pada target ini."
+                        ),
+                        "expanded_ms": expanded_ms,
+                        "analysis_mode": "fixed-grid-boundary-guard",
+                        "cached": False,
+                        "usage": client.usage.__dict__.copy(),
+                    }
+                    results.append(no_cut_result)
+                    self._save_cache(results)
+                    self.target_result.emit(no_cut_result)
+                    continue
+
                 verdict["target_ms"] = target_ms
                 verdict["target"] = format_ms(target_ms)
                 verdict["broad_window_start_ms"] = int(broad.get("window_start_ms") or 0)
@@ -493,7 +557,7 @@ class FilmCutWorker(QThread):
                 )
                 verdict["local_candidates"] = [x.to_dict() for x in local]
                 verdict["analysis_mode"] = (
-                    "contact-sheet+srt-expand+refine"
+                    "fixed-grid+contact-sheet+srt-expand+refine"
                     + ("+deep-video" if verdict.get("deep_check_used") else "")
                 )
                 verdict["cached"] = False
@@ -503,9 +567,7 @@ class FilmCutWorker(QThread):
                 self._save_cache(results)
                 self.target_result.emit(verdict)
                 self.usage_changed.emit(client.usage.__dict__.copy())
-
                 previous_cut_ms = selected_ms
-                part_index += 1
 
             self.done.emit(results)
         except Exception as exc:
