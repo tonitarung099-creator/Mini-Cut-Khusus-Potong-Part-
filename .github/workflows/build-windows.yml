@@ -1,0 +1,94 @@
+name: Build MiniCut Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Compile and import checks
+        shell: pwsh
+        run: |
+          python -m compileall -q minicut_agent main.py mcp_server.py smartcut_runner.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -c "from minicut_agent.ui import MiniCutWindow; from minicut_agent.gemini_keys import GeminiKeyStore; print('ui-import-ok')"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -c "import mcp_server; print('mcp-import-ok')"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Unit tests
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -v
+
+      - name: Build MiniCut Studio Agent
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name "MiniCut Studio Agent" --hidden-import PySide6.QtMultimedia --hidden-import PySide6.QtMultimediaWidgets --collect-data tzdata main.py
+
+      - name: Build MCP companion
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --console --name "MiniCut MCP" mcp_server.py
+          Copy-Item "dist/MiniCut MCP/MiniCut MCP.exe" "dist/MiniCut Studio Agent/MiniCut MCP.exe"
+          Copy-Item README.md "dist/MiniCut Studio Agent/README_AGENT.md"
+
+      - name: Build SmartCut companion
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --onefile --console --name "MiniCut SmartCut" --collect-all smartcut --collect-all av smartcut_runner.py
+          Copy-Item "dist/MiniCut SmartCut.exe" "dist/MiniCut Studio Agent/MiniCut SmartCut.exe"
+          Copy-Item THIRD_PARTY_SMARTCUT.txt "dist/MiniCut Studio Agent/THIRD_PARTY_SMARTCUT.txt"
+
+      - name: Smoke test SmartCut companion
+        shell: pwsh
+        run: |
+          & "dist/MiniCut Studio Agent/MiniCut SmartCut.exe" --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Smoke test executable
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "dist/MiniCut Studio Agent/MiniCut Studio Agent.exe" -ArgumentList "--self-test" -PassThru
+          if (-not $p.WaitForExit(30000)) {
+            $p.Kill()
+            throw "MiniCut self-test timeout"
+          }
+          $p.Refresh()
+          if ($p.ExitCode -ne 0) {
+            throw "MiniCut self-test failed with exit code $($p.ExitCode)"
+          }
+
+      - name: Package ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist/MiniCut Studio Agent/*" -DestinationPath "MiniCut-Windows.zip" -Force
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiniCut-Windows
+          path: MiniCut-Windows.zip
+          if-no-files-found: error
