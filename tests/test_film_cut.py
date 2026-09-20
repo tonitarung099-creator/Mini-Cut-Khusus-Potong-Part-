@@ -3,7 +3,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from minicut_agent.candidates import rank_candidates, target_times
+from minicut_agent.candidates import (
+    LocalCandidate, proximity_shortlist, rank_candidates, target_times
+)
 from minicut_agent.frame_resolver import resolve_semantic_frame
 from minicut_agent.gemini import _bounded_offset, _needs_deep_check
 from minicut_agent.subtitles import SubtitleTrack
@@ -72,6 +74,32 @@ class CandidateTests(unittest.TestCase):
 
 
 class SemanticCutTests(unittest.TestCase):
+    def test_nearest_valid_candidate_precedes_farther_stronger_candidate(self):
+        target = 15 * 60_000
+        near = LocalCandidate(
+            target_ms=target,
+            time_ms=target + 27_000,
+            distance_ms=27_000,
+            visual=True,
+            silence=False,
+            subtitle_gap=True,
+            subtitle_safe=True,
+            score=0.72,
+        )
+        far = LocalCandidate(
+            target_ms=target,
+            time_ms=target + 78_000,
+            distance_ms=78_000,
+            visual=True,
+            silence=True,
+            subtitle_gap=True,
+            subtitle_safe=True,
+            score=0.98,
+        )
+        shortlist = proximity_shortlist([far, near], target, max_n=4)
+        self.assertEqual(shortlist[0].time_ms, target + 27_000)
+        self.assertEqual(shortlist[1].time_ms, target + 78_000)
+
     def test_visual_change_outranks_plain_dialogue_gap(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "sample.srt"
