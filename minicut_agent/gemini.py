@@ -782,9 +782,12 @@ LOGIKA WAJIB:
 6. JANGAN memilih titik yang membelah dialog, pertanyaan-jawaban, aksi, reaksi,
    sebab-akibat, gerakan penting, atau transisi yang masih satu rangkaian.
 7. Keutuhan adegan dan alur LEBIH PENTING daripada kedekatan dengan patokan.
-8. Bandingkan SEMUA kandidat, jangan hanya mengikuti local_score.
-9. Jangan mengarang timestamp baru. Pilih kandidat yang tersedia.
-10. Jika storyboard tidak cukup untuk memastikan gerakan/transisi, minta Deep Check.
+8. Kandidat diurutkan dari yang paling dekat target. Kandidat lebih jauh hanya boleh dipilih
+   jika semua kandidat yang lebih dekat tidak valid sebagai boundary scene.
+9. Setelah menemukan kandidat yang sudah cukup valid, berhenti; jangan mencari boundary
+   yang lebih dramatis tetapi lebih jauh.
+10. Jangan mengarang timestamp baru. Pilih kandidat yang tersedia.
+11. Jika tidak ada kandidat yang valid, kembalikan NO_VALID_CANDIDATE.
 
 Anda menerima storyboard refinement 4 frame per kandidat:
 -5s, -1.2s, +1.2s, +5s.
@@ -795,16 +798,23 @@ Kandidat:
 
 Kembalikan HANYA JSON valid:
 {{
+  "decision": "CUT_FOUND",
   "selected_candidate_index": 1,
-  "alternate_candidate_index": 2,
   "confidence": 0.0,
   "scene_change": true,
   "dialog_safe": true,
   "action_safe": true,
-  "needs_deep_check": false,
   "needs_review": false,
   "cut_intent": "scene_transition",
   "reason": "alasan singkat dalam Bahasa Indonesia"
+}}
+
+Atau bila tidak ada kandidat valid:
+{{
+  "decision": "NO_VALID_CANDIDATE",
+  "confidence": 0.0,
+  "needs_review": false,
+  "reason": "semua kandidat belum merupakan boundary scene yang layak"
 }}
 """.strip()
 
@@ -818,41 +828,57 @@ def _deep_check_prompt(
     rows = []
     for idx in candidate_indexes:
         candidate = candidates[idx - 1]
+        tier = (
+            "±45 dtk"
+            if candidate.distance_ms <= 45_000
+            else "±90 dtk"
+            if candidate.distance_ms <= 90_000
+            else "±120 dtk"
+        )
         rows.append(
             f"KANDIDAT {idx}: {format_ms(candidate.time_ms)} | "
-            f"jarak={candidate.distance_ms/1000:.1f}s | "
-            f"visual_change={candidate.visual} | subtitle_safe={candidate.subtitle_safe}"
+            f"jarak={candidate.distance_ms/1000:.1f}s | prioritas={tier} | "
+            f"visual_change={candidate.visual} | silence={candidate.silence} | "
+            f"subtitle_gap={candidate.subtitle_gap} | subtitle_safe={candidate.subtitle_safe}"
         )
-        if subtitles:
-            excerpt = subtitles.nearby_text(
-                candidate.time_ms, radius_ms=14_000, max_chars=1800
-            )
-            rows.append("SRT:\n" + (excerpt or "(tidak ada subtitle)"))
 
     return f"""
-DEEP CHECK titik potong film sekitar patokan {format_ms(target_ms)}.
+PEMERIKSAAN FINAL titik potong film untuk target {format_ms(target_ms)}.
 
-Anda hanya membandingkan kandidat berikut:
+Anda menerima beberapa VIDEO PENDEK kandidat, masing-masing sekitar 20 detik total,
+TANPA AUDIO, ditambah SRT sinkron pada rentang kandidat yang sama.
+
+Kandidat SUDAH DIURUTKAN dari yang PALING DEKAT target ke yang lebih jauh:
 {chr(10).join(rows)}
 
-Anda menerima VIDEO VISUAL PENDEK sekitar ±8 detik untuk setiap kandidat.
-VIDEO TIDAK MEMILIKI AUDIO. Jangan mengarang fakta audio.
-Gunakan SRT untuk dialog.
+ATURAN WAJIB — NEAREST VALID WINS:
+1. Nilai kandidat mulai dari nomor 1, lalu 2, lalu 3, lalu 4.
+2. Jika kandidat yang lebih dekat SUDAH merupakan boundary scene yang cukup natural,
+   PILIH kandidat itu dan BERHENTI. Jangan memilih kandidat lebih jauh hanya karena
+   transisinya lebih dramatis atau lebih mudah terlihat.
+3. Kandidat lebih jauh hanya boleh dipilih jika SEMUA kandidat yang lebih dekat TIDAK VALID.
+4. Alasan tidak valid harus konkret: masih satu scene, hanya cut kamera/angle,
+   dialog/topik masih menyambung, pertanyaan-jawaban belum selesai, aksi/reaksi belum selesai,
+   atau belum ada perubahan konteks yang cukup.
+5. Target 15/30/45/60 adalah referensi kuat. Setelah boundary cukup valid ditemukan,
+   kedekatan ke target lebih penting daripada mencari boundary yang "paling kuat".
+6. Gunakan VISUAL + ARTI SRT bersama-sama. Subtitle bukan cuma penjaga jeda.
+7. Lokasi sama + waktu sama + kejadian/dialog masih satu rangkaian = JANGAN POTONG.
+8. Lokasi sama tetap boleh menjadi scene baru jika ada time jump, kejadian baru,
+   atau konteks dialog baru yang jelas.
+9. Silence, akhir kalimat, atau pergantian shot saja tidak cukup.
+10. Jika TIDAK ADA satu pun kandidat yang valid, pilih NO_VALID_CANDIDATE.
+11. Jika boundary valid berada sedikit sebelum/sesudah pusat kandidat,
+    preferred_offset_ms boleh ±1500 ms.
 
-Tentukan kandidat yang paling sesuai aturan:
-- scene lama selesai secara natural;
-- scene berikutnya masuk wajar;
-- bukan sekadar pergantian shot/kamera;
-- tidak membelah dialog, pertanyaan-jawaban, aksi, reaksi, sebab-akibat;
-- perubahan lokasi/waktu/konteks besar adalah bukti kuat;
-- keutuhan adegan/alur lebih penting daripada tepat 15 menit.
-
-Jika gerak visual menunjukkan batas ideal sedikit sebelum/sesudah pusat kandidat,
-preferred_offset_ms boleh diisi dalam ±1500 ms. Jika pusat sudah tepat, gunakan 0.
+Contoh prinsip:
+- 15:27 valid dan 16:18 juga valid → pilih 15:27.
+- 15:27 hanya shot change dalam percakapan yang sama, 16:18 scene baru nyata → pilih 16:18.
 
 Kembalikan HANYA JSON valid:
 {{
-  "selected_candidate_index": {candidate_indexes[0]},
+  "decision": "CUT_FOUND",
+  "selected_candidate_index": 1,
   "preferred_offset_ms": 0,
   "confidence": 0.0,
   "scene_change": true,
@@ -860,6 +886,17 @@ Kembalikan HANYA JSON valid:
   "action_safe": true,
   "needs_review": false,
   "cut_intent": "scene_transition",
-  "reason": "alasan Deep Check singkat dalam Bahasa Indonesia"
+  "closer_candidates_rejected": [
+    {{"index": 1, "reason": "isi hanya bila kandidat ini ditolak"}}
+  ],
+  "reason": "alasan singkat dalam Bahasa Indonesia"
+}}
+
+Jika tidak ada kandidat valid:
+{{
+  "decision": "NO_VALID_CANDIDATE",
+  "confidence": 0.0,
+  "needs_review": false,
+  "reason": "semua kandidat masih satu scene / belum aman"
 }}
 """.strip()
