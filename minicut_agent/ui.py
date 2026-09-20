@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
@@ -77,6 +77,8 @@ class MiniCutWindow(QMainWindow):
         self._frame_pts_cache: list[int] = []
         self._frame_pts_cache_start = 0
         self._frame_pts_cache_end = 0
+        self._scrub_pending_ms: int | None = None
+        self._scrub_resume_after = False
         self.film_cut_results: list[dict] = []
         self.srt_path: Path | None = None
         self.gemini_keys = GeminiKeyStore()
@@ -99,7 +101,9 @@ class MiniCutWindow(QMainWindow):
         self.player.setAudioOutput(self.audio)
 
         self._build_ui()
+        self._apply_modern_theme()
         self._connect_player()
+        self._install_shortcuts()
 
         try:
             self.bridge.start()
