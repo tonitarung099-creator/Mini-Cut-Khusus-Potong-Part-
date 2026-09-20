@@ -993,6 +993,8 @@ class MiniCutWindow(QMainWindow):
     def _proxy_progress(self, worker: ProxyWorker, pct: int, _text: str):
         if self.proxy_worker is worker:
             self.proxy_status_label.setText(f"Proxy: membuat {pct}%")
+            if hasattr(self, "review_badge"):
+                self.review_badge.setText(f"PROXY {pct}%")
 
     def _proxy_log(self, worker: ProxyWorker, text: str):
         if self.proxy_worker is worker:
@@ -1005,8 +1007,10 @@ class MiniCutWindow(QMainWindow):
         if not self.model.source or worker.source.resolve() != self.model.source.resolve():
             return
         self.preview_proxy = Path(path).resolve()
-        self.proxy_status_label.setText("Proxy: siap")
-        self._log("Proxy preview siap: " + str(self.preview_proxy))
+        self.proxy_status_label.setText("Proxy: siap · 480p")
+        if hasattr(self, "review_badge"):
+            self.review_badge.setText("SMOOTH REVIEW")
+        self._log("Proxy preview 480p siap: " + str(self.preview_proxy))
         if self.preview_combo.currentData() == "proxy":
             self._switch_player_media(self.preview_proxy)
 
@@ -1016,6 +1020,8 @@ class MiniCutWindow(QMainWindow):
         self.proxy_worker = None
         self.preview_proxy = None
         self.proxy_status_label.setText("Proxy: gagal · Original")
+        if hasattr(self, "review_badge"):
+            self.review_badge.setText("ORIGINAL REVIEW")
         self._log("Proxy preview gagal, tetap memakai original: " + message)
 
     def _proxy_cancelled(self, worker: ProxyWorker):
@@ -1947,12 +1953,22 @@ class MiniCutWindow(QMainWindow):
         if not self.model.source:
             self.info_label.setText("Belum ada video.")
             self.agent_state.setText("Belum ada timeline untuk dikontrol agent.")
+            if hasattr(self, "media_name_label"):
+                self.media_name_label.setText("No media loaded")
+                self.media_meta_label.setText("Drag & drop video di sini")
             self.parts_table.setRowCount(0)
             return
         self.info_label.setText(
             f"{self.model.source.name} · {clock_text(self.model.duration_ms)} · "
             f"{self.model.fps:.3f} fps · {len(self.model.cuts) + 1} part"
         )
+        if hasattr(self, "media_name_label"):
+            self.media_name_label.setText(self.model.source.name)
+            self.media_meta_label.setText(
+                f"{clock_text(self.model.duration_ms)}\n"
+                f"{self.model.fps:.3f} fps · {len(self.model.cuts) + 1} part\n"
+                f"Master tetap dipakai untuk export."
+            )
         self.agent_state.setText(
             f"{self.model.source.name} · {len(self.model.cuts) + 1} part · "
             f"playhead {clock_text(self.model.playhead_ms)} · "
