@@ -25,6 +25,11 @@ class GeminiKeyStoreTests(unittest.TestCase):
             snap = store.snapshot(key_id, "gemini-3.5-flash-lite")
             self.assertEqual(snap["rpd_used"], 7)
             self.assertEqual(snap["rpd_limit"], 500)
+            self.assertEqual(snap["rpd_remaining"], 493)
+            self.assertEqual(snap["rpm_remaining"], 8)
+            self.assertEqual(snap["tpm_remaining"], 250000 - 23644)
+            self.assertGreater(snap["rpd_reset_seconds"], 0)
+            self.assertLessEqual(snap["rpd_reset_seconds"], 25 * 60 * 60)
             self.assertGreater(snap["rpd_pct"], 1.0)
             self.assertEqual(snap["status"], "ready")
 
