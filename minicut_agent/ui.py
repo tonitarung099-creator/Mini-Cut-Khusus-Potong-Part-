@@ -361,6 +361,22 @@ class MiniCutWindow(QMainWindow):
                 font-family: "Consolas";
                 font-weight: 600;
             }
+            QWidget#QuotaCard {
+                background: #191d27;
+                border: 1px solid #353b4b;
+                border-radius: 9px;
+            }
+            QLabel#QuotaValue {
+                color: #f2f3f8;
+                font-family: "Consolas";
+                font-size: 10pt;
+                font-weight: 700;
+            }
+            QLabel#SessionUsage {
+                color: #bcaeff;
+                font-family: "Consolas";
+                font-weight: 700;
+            }
             QLabel#MediaName {
                 color: #ffffff;
                 font-weight: 700;
@@ -725,6 +741,26 @@ class MiniCutWindow(QMainWindow):
         form.addRow("Resume", self.film_cache)
         layout.addLayout(form)
 
+        quota_card = QWidget()
+        quota_card.setObjectName("QuotaCard")
+        quota_layout = QVBoxLayout(quota_card)
+        quota_layout.setContentsMargins(10, 8, 10, 8)
+        quota_layout.setSpacing(3)
+        quota_title = QLabel("KUOTA GEMINI AKTIF · PERKIRAAN LOKAL MINICUT")
+        quota_title.setObjectName("SectionTitle")
+        self.film_quota_label = QLabel("RPM sisa —  ·  TPM sisa —  ·  RPD sisa —")
+        self.film_quota_label.setObjectName("QuotaValue")
+        self.film_quota_label.setWordWrap(True)
+        self.film_quota_reset_label = QLabel(
+            "Pilih API key aktif untuk melihat sisa kuota yang tercatat MiniCut."
+        )
+        self.film_quota_reset_label.setObjectName("MutedLabel")
+        self.film_quota_reset_label.setWordWrap(True)
+        quota_layout.addWidget(quota_title)
+        quota_layout.addWidget(self.film_quota_label)
+        quota_layout.addWidget(self.film_quota_reset_label)
+        layout.addWidget(quota_card)
+
         actions = QHBoxLayout()
         self.gemini_test_btn = QPushButton("Tes API")
         self.film_analyze_btn = QPushButton("Analisis Film")
@@ -741,7 +777,11 @@ class MiniCutWindow(QMainWindow):
 
         self.film_status_label = QLabel("Siap. Buka video, pilih SRT, lalu pilih Gemini API aktif.")
         self.film_status_label.setWordWrap(True)
-        self.film_usage_label = QLabel("Pemakaian sesi: 0 request · 0 token")
+        self.film_usage_label = QLabel(
+            "SESI SAAT INI · Request 0 · Input 0 · Output 0 · Total 0 token"
+        )
+        self.film_usage_label.setObjectName("SessionUsage")
+        self.film_usage_label.setWordWrap(True)
         layout.addWidget(self.film_status_label)
         layout.addWidget(self.film_usage_label)
 
@@ -780,9 +820,28 @@ class MiniCutWindow(QMainWindow):
         self.gemini_key_count_label = QLabel()
         layout.addWidget(self.gemini_key_count_label)
 
+        manager_quota_card = QWidget()
+        manager_quota_card.setObjectName("QuotaCard")
+        manager_quota_layout = QVBoxLayout(manager_quota_card)
+        manager_quota_layout.setContentsMargins(10, 8, 10, 8)
+        manager_quota_layout.setSpacing(3)
+        manager_quota_title = QLabel("SISA KUOTA API AKTIF")
+        manager_quota_title.setObjectName("SectionTitle")
+        self.manager_quota_label = QLabel("RPM sisa —  ·  TPM sisa —  ·  RPD sisa —")
+        self.manager_quota_label.setObjectName("QuotaValue")
+        self.manager_quota_label.setWordWrap(True)
+        self.manager_quota_reset_label = QLabel("Belum ada API key aktif.")
+        self.manager_quota_reset_label.setObjectName("MutedLabel")
+        self.manager_quota_reset_label.setWordWrap(True)
+        manager_quota_layout.addWidget(manager_quota_title)
+        manager_quota_layout.addWidget(self.manager_quota_label)
+        manager_quota_layout.addWidget(self.manager_quota_reset_label)
+        layout.addWidget(manager_quota_card)
+
         self.gemini_keys_table = QTableWidget(0, 8)
         self.gemini_keys_table.setHorizontalHeaderLabels([
-            "Aktif", "Nama", "Project", "API key", "Status", "RPM", "TPM", "RPD"
+            "Aktif", "Nama", "Project", "API key", "Status",
+            "Sisa RPM", "Sisa TPM", "Sisa RPD"
         ])
         self.gemini_keys_table.horizontalHeader().setStretchLastSection(True)
         self.gemini_keys_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
