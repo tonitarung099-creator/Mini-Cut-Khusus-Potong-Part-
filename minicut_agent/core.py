@@ -363,7 +363,7 @@ def preview_proxy_path(source: Path) -> Path:
     """
     source = source.resolve()
     stat = source.stat()
-    identity = f"preview-v1|{source}|{stat.st_size}|{stat.st_mtime_ns}".encode("utf-8", errors="replace")
+    identity = f"preview-v2-smooth480|{source}|{stat.st_size}|{stat.st_mtime_ns}".encode("utf-8", errors="replace")
     token = hashlib.sha1(identity).hexdigest()[:20]
     base_env = os.environ.get("LOCALAPPDATA")
     if base_env:
@@ -397,27 +397,36 @@ def build_preview_proxy(
         except OSError:
             pass
 
-    gop = max(12, min(120, int(round(fps if fps > 0 else 25.0))))
+    # Review proxy is intentionally easier to decode than the master.
+    # 480p + max 30 fps + no B-frames keeps 2x/3x/4x playback responsive
+    # on typical Windows laptops while the master remains untouched.
+    source_fps = float(fps or 25.0)
+    proxy_fps = max(12, min(30, int(round(source_fps))))
+    gop = max(6, int(round(proxy_fps / 2)))
     cmd = [
         ffmpeg, "-y", "-hide_banner", "-nostats", "-progress", "pipe:1",
         "-i", str(source),
         "-map", "0:v:0", "-map", "0:a:0?",
     ]
-    if int(source_height or 0) > 720:
-        cmd += ["-vf", "scale=-2:720"]
+    if int(source_height or 0) > 480:
+        vf = f"scale=-2:480:flags=fast_bilinear,fps={proxy_fps}"
     else:
-        cmd += ["-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2"]
+        vf = f"scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear,fps={proxy_fps}"
     cmd += [
+        "-vf", vf,
         "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "28",
+        "-preset", "ultrafast",
+        "-tune", "fastdecode",
+        "-crf", "31",
         "-pix_fmt", "yuv420p",
+        "-bf", "0",
         "-g", str(gop),
         "-keyint_min", str(gop),
         "-sc_threshold", "0",
         "-c:a", "aac",
-        "-b:a", "96k",
-        "-ac", "2",
+        "-b:a", "64k",
+        "-ac", "1",
+        "-ar", "44100",
         "-movflags", "+faststart",
         str(tmp),
     ]
