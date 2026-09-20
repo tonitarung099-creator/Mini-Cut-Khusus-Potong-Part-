@@ -261,95 +261,113 @@ class GeminiClient:
         if not candidates:
             raise ValueError("Tidak ada kandidat untuk diverifikasi Gemini.")
 
-        # TAHAP 1 — storyboard lebar + SRT. Gemini membandingkan semua kandidat
-        # dalam satu keputusan, tetapi tidak menerima video ±2 menit.
-        prompt = _storyboard_prompt(target_ms, candidates, subtitles)
-        parts: list[dict[str, Any]] = [{"text": prompt}]
-        labels = tuple(
-            f"{offset / 1000:+g}s" for offset in STORYBOARD_OFFSETS_MS
-        )
+        # Kandidat SELALU diurutkan berdasarkan jarak dari target nominal.
+        # Kandidat yang lebih jauh hanya boleh menang bila kandidat yang lebih dekat
+        # dinilai tidak valid sebagai boundary scene.
+        ordered = sorted(
+            candidates,
+            key=lambda x: (int(x.distance_ms), -float(x.score), int(x.time_ms)),
+        )[:4]
 
-        for i, candidate in enumerate(candidates, 1):
-            parts.append({
-                "text": (
-                    f"KANDIDAT {i} · pusat {format_ms(candidate.time_ms)} · "
-                    "urutan storyboard sebelum → sesudah"
-                )
-            })
-            for label, offset_ms in zip(labels, STORYBOARD_OFFSETS_MS):
-                frame_ms = max(0, candidate.time_ms + offset_ms)
-                jpg = extract_frame_jpeg(ffmpeg, source, frame_ms, frame_width)
-                parts.append({
-                    "text": f"Kandidat {i} · {label} · {format_ms(frame_ms)}"
-                })
-                parts.append({
-                    "inline_data": {
-                        "mime_type": "image/jpeg",
-                        "data": base64.b64encode(jpg).decode("ascii"),
-                    },
-                    "media_resolution": {"level": "MEDIA_RESOLUTION_LOW"},
-                })
-
-        payload = {
-            "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {
-                "temperature": 0.1,
-                "maxOutputTokens": 850,
-                "responseMimeType": "application/json",
-            },
-        }
-        data = self._post(payload)
-        text = _response_text(data)
-        try:
-            result = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError("Gemini tidak mengembalikan JSON valid pada storyboard.") from exc
-
-        selected_index = _candidate_index(result.get("selected_candidate_index"), len(candidates))
-        alternate_index = _optional_candidate_index(
-            result.get("alternate_candidate_index"), len(candidates), selected_index
-        )
-
-        deep_needed = allow_deep_check and (
-            bool(force_deep_check) or _needs_deep_check(result)
-        )
-        if deep_needed:
-            if alternate_index is None:
-                alternate_index = _best_alternate_index(candidates, selected_index)
-            compare_indexes = [selected_index]
-            if alternate_index and alternate_index != selected_index:
-                compare_indexes.append(alternate_index)
-
-            deep = self._deep_check_candidates(
+        if allow_deep_check:
+            result = self._deep_check_candidates(
                 ffmpeg=ffmpeg,
                 source=source,
                 target_ms=target_ms,
-                candidates=candidates,
-                candidate_indexes=compare_indexes,
+                candidates=ordered,
+                candidate_indexes=list(range(1, len(ordered) + 1)),
                 subtitles=subtitles,
             )
+            decision = str(result.get("decision") or "").upper()
+            if decision == "NO_VALID_CANDIDATE":
+                result["selected_candidate_index"] = None
+                result["candidate_time_ms"] = 0
+                result["candidate_time"] = ""
+                result["preferred_time_ms"] = 0
+                result["target_ms"] = target_ms
+                result["target"] = format_ms(target_ms)
+                result["analysis_mode"] = "nearest-first+short-video+srt"
+                result["deep_check_used"] = True
+                result["candidate_count"] = len(ordered)
+                result["usage"] = self.usage.__dict__.copy()
+                return result
+
             selected_index = _candidate_index(
-                deep.get("selected_candidate_index"), len(candidates)
+                result.get("selected_candidate_index"), len(ordered)
             )
-            # Keep the deep decision fields but retain the original storyboard
-            # diagnostics for audit.
-            result["storyboard_selected_candidate_index"] = result.get(
-                "selected_candidate_index"
-            )
-            result["storyboard_confidence"] = result.get("confidence")
-            result["storyboard_reason"] = result.get("reason")
-            result.update(deep)
             result["deep_check_used"] = True
         else:
+            # Fallback hemat: storyboard gambar saja. Tetap gunakan nearest-first.
+            prompt = _storyboard_prompt(target_ms, ordered, subtitles)
+            parts: list[dict[str, Any]] = [{"text": prompt}]
+            labels = tuple(
+                f"{offset / 1000:+g}s" for offset in STORYBOARD_OFFSETS_MS
+            )
+            for i, candidate in enumerate(ordered, 1):
+                parts.append({
+                    "text": (
+                        f"KANDIDAT {i} · pusat {format_ms(candidate.time_ms)} · "
+                        f"jarak target {candidate.distance_ms/1000:.1f}s"
+                    )
+                })
+                for label, offset_ms in zip(labels, STORYBOARD_OFFSETS_MS):
+                    frame_ms = max(0, candidate.time_ms + offset_ms)
+                    jpg = extract_frame_jpeg(ffmpeg, source, frame_ms, frame_width)
+                    parts.append({
+                        "text": f"Kandidat {i} · {label} · {format_ms(frame_ms)}"
+                    })
+                    parts.append({
+                        "inline_data": {
+                            "mime_type": "image/jpeg",
+                            "data": base64.b64encode(jpg).decode("ascii"),
+                        },
+                        "media_resolution": {"level": "MEDIA_RESOLUTION_LOW"},
+                    })
+
+            payload = {
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {
+                    "temperature": 0.05,
+                    "maxOutputTokens": 850,
+                    "responseMimeType": "application/json",
+                },
+            }
+            data = self._post(payload)
+            text = _response_text(data)
+            try:
+                result = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    "Gemini tidak mengembalikan JSON valid pada refinement storyboard."
+                ) from exc
+
+            decision = str(result.get("decision") or "CUT_FOUND").upper()
+            if decision == "NO_VALID_CANDIDATE":
+                result["selected_candidate_index"] = None
+                result["candidate_time_ms"] = 0
+                result["candidate_time"] = ""
+                result["preferred_time_ms"] = 0
+                result["target_ms"] = target_ms
+                result["target"] = format_ms(target_ms)
+                result["analysis_mode"] = "nearest-first+storyboard+srt"
+                result["deep_check_used"] = False
+                result["candidate_count"] = len(ordered)
+                result["usage"] = self.usage.__dict__.copy()
+                return result
+            selected_index = _candidate_index(
+                result.get("selected_candidate_index"), len(ordered)
+            )
             result["deep_check_used"] = False
 
-        selected = candidates[selected_index - 1]
+        selected = ordered[selected_index - 1]
         preferred_off = _bounded_offset(result.get("preferred_offset_ms"), 0)
         preferred_ms = max(0, selected.time_ms + preferred_off)
 
+        result["decision"] = "CUT_FOUND"
         result["selected_candidate_index"] = selected_index
         result["candidate_time_ms"] = selected.time_ms
         result["candidate_time"] = format_ms(selected.time_ms)
+        result["candidate_distance_ms"] = abs(selected.time_ms - target_ms)
         result["preferred_time_ms"] = preferred_ms
         result["boundary_start_ms"] = max(0, preferred_ms - 700)
         result["boundary_end_ms"] = preferred_ms + 700
@@ -357,12 +375,12 @@ class GeminiClient:
         result["target_ms"] = target_ms
         result["target"] = format_ms(target_ms)
         result["analysis_mode"] = (
-            "storyboard+srt+deep-silent-video"
+            "nearest-first+short-video+srt"
             if result["deep_check_used"]
-            else "storyboard+srt"
+            else "nearest-first+storyboard+srt"
         )
         result["frames_per_candidate"] = len(STORYBOARD_OFFSETS_MS)
-        result["candidate_count"] = len(candidates)
+        result["candidate_count"] = len(ordered)
         result["cut_intent"] = str(result.get("cut_intent") or "scene_transition")
         result["usage"] = self.usage.__dict__.copy()
         return result
@@ -376,8 +394,8 @@ class GeminiClient:
         candidate_indexes: list[int],
         subtitles: SubtitleTrack | None,
     ) -> dict[str, Any]:
-        # TAHAP 2 — hanya kandidat ambigu yang mendapat cuplikan pendek.
-        # Cuplikan sengaja TANPA AUDIO; SRT tetap menjadi verifikasi dialog.
+        # Kandidat dibandingkan dengan video pendek TANPA AUDIO + SRT sinkron.
+        # Urutan kandidat sengaja nearest-first.
         parts: list[dict[str, Any]] = [{
             "text": _deep_check_prompt(
                 target_ms, candidates, candidate_indexes, subtitles
@@ -391,10 +409,21 @@ class GeminiClient:
                 candidate.time_ms,
                 radius_ms=DEEP_CHECK_RADIUS_MS,
             )
+            srt_text = (
+                subtitles.nearby_text(
+                    candidate.time_ms,
+                    radius_ms=DEEP_CHECK_RADIUS_MS + 2_000,
+                    max_chars=2600,
+                )
+                if subtitles else ""
+            )
             parts.append({
                 "text": (
-                    f"KANDIDAT {idx} · video visual pendek ±"
-                    f"{DEEP_CHECK_RADIUS_MS/1000:.0f}s · TANPA AUDIO"
+                    f"KANDIDAT {idx} · {format_ms(candidate.time_ms)} · "
+                    f"jarak target {candidate.distance_ms/1000:.1f}s · "
+                    f"VIDEO ±{DEEP_CHECK_RADIUS_MS/1000:.0f}s TANPA AUDIO\n"
+                    "SRT pada rentang kandidat yang sama:\n"
+                    + (srt_text or "(tidak ada subtitle)")
                 )
             })
             parts.append({
@@ -408,21 +437,38 @@ class GeminiClient:
         payload = {
             "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {
-                "temperature": 0.05,
-                "maxOutputTokens": 700,
+                "temperature": 0.02,
+                "maxOutputTokens": 850,
                 "responseMimeType": "application/json",
             },
         }
-        data = self._post(payload)
+        data = self._post(payload, timeout=120)
         text = _response_text(data)
         try:
             result = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise RuntimeError("Gemini tidak mengembalikan JSON valid pada Deep Check.") from exc
+            raise RuntimeError(
+                "Gemini tidak mengembalikan JSON valid pada pemeriksaan video kandidat."
+            ) from exc
 
-        selected = _candidate_index(result.get("selected_candidate_index"), len(candidates))
+        decision = str(result.get("decision") or "CUT_FOUND").upper()
+        if decision == "NO_VALID_CANDIDATE":
+            result["decision"] = decision
+            result["needs_review"] = bool(result.get("needs_review", False))
+            result["deep_check_compared"] = candidate_indexes
+            return result
+        if decision != "CUT_FOUND":
+            raise RuntimeError("Decision video kandidat tidak valid.")
+
+        selected = _candidate_index(
+            result.get("selected_candidate_index"), len(candidates)
+        )
         if selected not in candidate_indexes:
-            raise RuntimeError("Deep Check memilih kandidat di luar kandidat yang dibandingkan.")
+            raise RuntimeError(
+                "Pemeriksaan video memilih kandidat di luar daftar."
+            )
+
+        result["decision"] = "CUT_FOUND"
         result["selected_candidate_index"] = selected
         result["needs_review"] = bool(result.get("needs_review", False))
         result["deep_check_compared"] = candidate_indexes
