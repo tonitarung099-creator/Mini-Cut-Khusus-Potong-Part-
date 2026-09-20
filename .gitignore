@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+build/
+dist/
+*.spec
+*.zip
+*.minicut-ai-cache.json
+.pytest_cache/
+.idea/
+.vscode/
