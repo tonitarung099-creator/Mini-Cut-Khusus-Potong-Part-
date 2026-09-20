@@ -862,6 +862,11 @@ class MiniCutWindow(QMainWindow):
         self.gemini_remove_key_btn = QPushButton("Hapus")
         self.gemini_activate_key_btn = QPushButton("Jadikan Aktif")
         self.gemini_test_selected_btn = QPushButton("Tes Terpilih")
+        self.gemini_refresh_all_btn = QPushButton("Lihat Semua Status")
+        self.gemini_test_all_btn = QPushButton("Cek Semua API Online")
+        self.gemini_use_ready_btn = QPushButton("Pakai API SIAP")
+        self.gemini_cancel_all_btn = QPushButton("Batalkan Cek")
+        self.gemini_cancel_all_btn.setEnabled(False)
         actions.addWidget(self.gemini_add_key_btn)
         actions.addWidget(self.gemini_edit_key_btn)
         actions.addWidget(self.gemini_remove_key_btn)
@@ -869,9 +874,23 @@ class MiniCutWindow(QMainWindow):
         actions.addWidget(self.gemini_test_selected_btn)
         layout.addLayout(actions)
 
+        batch_actions = QHBoxLayout()
+        batch_actions.addWidget(self.gemini_refresh_all_btn)
+        batch_actions.addWidget(self.gemini_test_all_btn)
+        batch_actions.addWidget(self.gemini_use_ready_btn)
+        batch_actions.addWidget(self.gemini_cancel_all_btn)
+        layout.addLayout(batch_actions)
+
+        self.gemini_batch_status_label = QLabel("Belum ada pengecekan semua API.")
+        self.gemini_batch_status_label.setObjectName("MutedLabel")
+        self.gemini_batch_status_label.setWordWrap(True)
+        layout.addWidget(self.gemini_batch_status_label)
+
         self.gemini_manager_note = QLabel(
-            "Status hijau = request tes terakhir berhasil. Merah LIMIT = Google mengembalikan limit/quota. "
-            "MiniCut tidak memindahkan key secara otomatis saat kuota habis."
+            "Lihat Semua Status = hanya membaca catatan lokal dan tidak memakai request. "
+            "Cek Semua API Online = mengirim 1 request tes per key secara bertahap dan dapat memakai kuota. "
+            "MiniCut tidak merotasi key otomatis untuk melewati kuota; pilih key SIAP dengan satu klik. "
+            "Pada limit sementara, key aktif akan retry/backoff terlebih dahulu."
         )
         self.gemini_manager_note.setWordWrap(True)
         layout.addWidget(self.gemini_manager_note)
@@ -881,6 +900,10 @@ class MiniCutWindow(QMainWindow):
         self.gemini_remove_key_btn.clicked.connect(self._remove_gemini_key)
         self.gemini_activate_key_btn.clicked.connect(self._activate_selected_gemini_key)
         self.gemini_test_selected_btn.clicked.connect(self._test_selected_gemini_key)
+        self.gemini_refresh_all_btn.clicked.connect(self._refresh_all_gemini_status)
+        self.gemini_test_all_btn.clicked.connect(self._test_all_gemini_keys)
+        self.gemini_use_ready_btn.clicked.connect(self._use_ready_gemini_key)
+        self.gemini_cancel_all_btn.clicked.connect(self._cancel_all_gemini_tests)
         self._refresh_gemini_key_views()
         return w
 
