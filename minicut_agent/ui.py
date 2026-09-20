@@ -124,54 +124,49 @@ class MiniCutWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # Filmora-inspired top command bar.
+        # Layout kembali seperti versi awal: toolbar atas, preview kiri, panel tab kanan.
         topbar = QWidget()
         topbar.setObjectName("TopBar")
-        top = QHBoxLayout(topbar)
-        top.setContentsMargins(16, 10, 16, 10)
-        top.setSpacing(8)
+        toolbar = QHBoxLayout(topbar)
+        toolbar.setContentsMargins(14, 9, 14, 9)
+        toolbar.setSpacing(8)
 
         brand = QLabel("MINI CUT")
         brand.setObjectName("Brand")
-        subtitle = QLabel("AI PART EDITOR")
-        subtitle.setObjectName("BrandSub")
-        top.addWidget(brand)
-        top.addWidget(subtitle)
-        top.addSpacing(18)
+        toolbar.addWidget(brand)
+        toolbar.addSpacing(10)
 
-        self.open_video_btn = QPushButton("＋ Media")
-        self.open_project_btn = QPushButton("Open Project")
-        self.save_btn = QPushButton("Save")
-        self.export_btn = QPushButton("Export Parts")
+        self.open_video_btn = QPushButton("＋ Buka Video")
+        self.open_project_btn = QPushButton("Buka Proyek")
+        self.save_btn = QPushButton("Simpan")
+        self.export_btn = QPushButton("Ekspor Semua Part")
         self.export_btn.setObjectName("PrimaryButton")
         self.export_mode = QComboBox()
         self.export_mode.addItem("SmartCut · Frame Accurate", "smartcut")
         self.export_mode.addItem("Fast Copy · Keyframe", "fast")
-        top.addWidget(self.open_video_btn)
-        top.addWidget(self.open_project_btn)
-        top.addWidget(self.save_btn)
-        top.addStretch(1)
-        top.addWidget(self.export_mode)
-        top.addWidget(self.export_btn)
+
+        toolbar.addWidget(self.open_video_btn)
+        toolbar.addWidget(self.open_project_btn)
+        toolbar.addWidget(self.save_btn)
+        toolbar.addStretch(1)
+        toolbar.addWidget(self.export_mode)
+        toolbar.addWidget(self.export_btn)
         outer.addWidget(topbar)
 
-        # Workspace: media bin | viewer | AI inspector.
-        vertical = QSplitter(Qt.Orientation.Vertical)
-        vertical.setObjectName("MainVerticalSplitter")
-        workspace = QSplitter(Qt.Orientation.Horizontal)
-        workspace.setObjectName("WorkspaceSplitter")
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setObjectName("WorkspaceSplitter")
+        splitter.setChildrenCollapsible(False)
+        outer.addWidget(splitter, 1)
 
-        media = self._media_panel()
-        workspace.addWidget(media)
-
+        # Preview besar di kiri, sama seperti layout awal.
         preview = QWidget()
         preview.setObjectName("PreviewPanel")
         pv = QVBoxLayout(preview)
-        pv.setContentsMargins(10, 10, 10, 8)
+        pv.setContentsMargins(12, 12, 10, 10)
         pv.setSpacing(8)
 
         preview_header = QHBoxLayout()
-        preview_title = QLabel("PLAYER")
+        preview_title = QLabel("PREVIEW")
         preview_title.setObjectName("SectionTitle")
         self.review_badge = QLabel("SMOOTH REVIEW")
         self.review_badge.setObjectName("Badge")
@@ -182,7 +177,7 @@ class MiniCutWindow(QMainWindow):
 
         self.video = QVideoWidget()
         self.video.setObjectName("VideoSurface")
-        self.video.setMinimumSize(560, 315)
+        self.video.setMinimumSize(520, 300)
         self.player.setVideoOutput(self.video)
         pv.addWidget(self.video, 1)
 
@@ -193,21 +188,28 @@ class MiniCutWindow(QMainWindow):
 
         controls = QHBoxLayout()
         controls.setSpacing(6)
-        self.back_btn = QPushButton("◀ Frame")
-        self.play_btn = QPushButton("▶")
+        self.back_btn = QPushButton("◀ 1 Frame")
+        self.play_btn = QPushButton("▶ Play")
         self.play_btn.setObjectName("PlayButton")
-        self.forward_btn = QPushButton("Frame ▶")
+        self.forward_btn = QPushButton("1 Frame ▶")
+
         self.speed_combo = QComboBox()
-        for label, rate in (("0.5x", 0.5), ("1x", 1.0), ("1.5x", 1.5), ("2x", 2.0), ("3x", 3.0), ("4x", 4.0)):
+        for label, rate in (
+            ("0.5x", 0.5), ("1x", 1.0), ("1.5x", 1.5),
+            ("2x", 2.0), ("3x", 3.0), ("4x", 4.0)
+        ):
             self.speed_combo.addItem(label, rate)
         self.speed_combo.setCurrentIndex(1)
+
         self.preview_combo = QComboBox()
         self.preview_combo.addItem("Smooth Proxy", "proxy")
         self.preview_combo.addItem("Original", "original")
+
         self.proxy_status_label = QLabel("Proxy: belum dibuat")
         self.proxy_status_label.setObjectName("MutedLabel")
         self.position_label = QLabel("00:00:00.000 / 00:00:00.000")
         self.position_label.setObjectName("Timecode")
+
         controls.addWidget(self.back_btn)
         controls.addWidget(self.play_btn)
         controls.addWidget(self.forward_btn)
@@ -219,24 +221,20 @@ class MiniCutWindow(QMainWindow):
         controls.addStretch(1)
         controls.addWidget(self.position_label)
         pv.addLayout(controls)
-        workspace.addWidget(preview)
+        splitter.addWidget(preview)
 
+        # Semua alat kembali berada di panel kanan seperti versi awal.
         self.tabs = QTabWidget()
         self.tabs.setObjectName("InspectorTabs")
-        self.tabs.addTab(self._film_cut_tab(), "AI Film Cut")
+        self.tabs.addTab(self._parts_tab(), "Timeline Part")
         self.tabs.addTab(self._agent_tab(), "AI Agent")
+        self.tabs.addTab(self._film_cut_tab(), "AI Film Cut")
         self.tabs.addTab(self._gemini_keys_tab(), "Gemini API")
         self.tabs.addTab(self._log_tab(), "Log")
-        workspace.addWidget(self.tabs)
-        workspace.setSizes([220, 820, 430])
-
-        vertical.addWidget(workspace)
-
-        timeline_panel = self._parts_tab()
-        timeline_panel.setObjectName("TimelinePanel")
-        vertical.addWidget(timeline_panel)
-        vertical.setSizes([620, 260])
-        outer.addWidget(vertical, 1)
+        splitter.addWidget(self.tabs)
+        splitter.setSizes([820, 460])
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
 
         footer = QWidget()
         footer.setObjectName("Footer")
@@ -247,7 +245,7 @@ class MiniCutWindow(QMainWindow):
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
-        self.progress.setMaximumWidth(260)
+        self.progress.setMaximumWidth(280)
         bottom.addWidget(self.status, 1)
         bottom.addWidget(self.progress)
         outer.addWidget(footer)
@@ -258,14 +256,13 @@ class MiniCutWindow(QMainWindow):
         self.open_project_btn.clicked.connect(self._choose_project)
         self.save_btn.clicked.connect(lambda: self.tool_save_project())
         self.export_btn.clicked.connect(lambda: self.tool_export_all())
-        self.media_open_btn.clicked.connect(self._choose_video)
         self.play_btn.clicked.connect(self._toggle_play)
         self.back_btn.clicked.connect(lambda: self._step_frame(-1))
         self.forward_btn.clicked.connect(lambda: self._step_frame(1))
         self.speed_combo.currentIndexChanged.connect(self._playback_rate_changed)
         self.preview_combo.currentIndexChanged.connect(self._preview_mode_changed)
 
-        # Throttled scrubbing: do not hammer QMediaPlayer with a seek for every pixel.
+        # Smooth scrubbing tetap dipertahankan.
         self.scrub_timer = QTimer(self)
         self.scrub_timer.setInterval(45)
         self.scrub_timer.timeout.connect(self._flush_scrub)
