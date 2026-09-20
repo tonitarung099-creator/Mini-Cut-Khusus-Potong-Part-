@@ -523,7 +523,7 @@ class FilmCutWorker(QThread):
                     refine_center_ms,
                     refine_window_ms,
                     subtitles,
-                    top_n=50,
+                    top_n=200,
                 )
                 local = proximity_shortlist(
                     local_pool,
