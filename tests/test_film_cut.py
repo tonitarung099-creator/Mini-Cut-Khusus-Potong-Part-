@@ -35,10 +35,24 @@ class SubtitleTests(unittest.TestCase):
             gaps = track.gap_boundaries(14 * 60_000, 16 * 60_000)
             self.assertTrue(any(14 * 60_000 + 48_000 < x < 15 * 60_000 + 10_000 for x in gaps))
 
+            synced = track.between_text(14 * 60_000 + 35_000, 14 * 60_000 + 55_000)
+            self.assertIn("Dialog sebelum pergantian scene.", synced)
+            self.assertNotIn("Dialog scene berikutnya.", synced)
+
     def test_target_times_avoids_short_tail(self):
         duration = 62 * 60_000
         self.assertEqual(target_times(duration, 15 * 60_000), [
             15 * 60_000, 30 * 60_000, 45 * 60_000
+        ])
+
+    def test_target_grid_stays_absolute_15_30_45_60(self):
+        duration = 80 * 60_000
+        self.assertEqual(target_times(duration, 15 * 60_000), [
+            15 * 60_000,
+            30 * 60_000,
+            45 * 60_000,
+            60 * 60_000,
+            75 * 60_000,
         ])
 
 
