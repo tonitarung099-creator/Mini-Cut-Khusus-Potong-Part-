@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-from .candidates import find_candidates_for_target, target_times
+from .candidates import find_candidates_for_target, proximity_shortlist, target_times
 from .core import build_preview_proxy, export_segments, export_segments_smartcut, probe_keyframes, probe_media
 from .gemini import GeminiClient
 from .gemini_keys import model_limits
@@ -228,7 +228,7 @@ class FilmCutWorker(QThread):
     failed = Signal(str)
     cancelled = Signal()
 
-    CACHE_VERSION = 7
+    CACHE_VERSION = 8
 
     def __init__(
         self,
@@ -489,19 +489,46 @@ class FilmCutWorker(QThread):
                     continue
 
                 hint_ms = int(broad.get("boundary_hint_ms") or target_ms)
+
+                # Untuk window AWAL, jangan biarkan hint contact-sheet mengunci
+                # refinement ke area yang terlalu jauh (contoh 16:18) dan menghapus
+                # kandidat lebih dekat (contoh 15:27). Refinement kembali ke target
+                # nominal ±window awal, lalu shortlist nearest-first.
+                if expanded_ms == 0:
+                    refine_center_ms = target_ms
+                    refine_window_ms = self.window_ms
+                    reference_ms = target_ms
+                    refine_label = (
+                        f"Target {format_ms(target_ms)} · bandingkan kandidat terdekat "
+                        f"dalam ±{self.window_ms // 60_000} menit"
+                    )
+                else:
+                    # Jika window awal memang tidak punya boundary valid dan pencarian
+                    # sudah diperluas, refinement cukup di sekitar hint perluasan.
+                    refine_center_ms = hint_ms
+                    refine_window_ms = self.refine_window_ms
+                    reference_ms = target_ms
+                    refine_label = (
+                        f"Target {format_ms(target_ms)} · refinement hasil perluasan "
+                        f"sekitar {format_ms(hint_ms)}"
+                    )
+
                 self.progress_changed.emit(
-                    part_index,
-                    estimated_total,
-                    f"Target {format_ms(target_ms)} · refinement sekitar {format_ms(hint_ms)}",
+                    part_index, estimated_total, refine_label
                 )
 
-                local = find_candidates_for_target(
+                local_pool = find_candidates_for_target(
                     self.ffmpeg,
                     self.source,
-                    hint_ms,
-                    self.refine_window_ms,
+                    refine_center_ms,
+                    refine_window_ms,
                     subtitles,
-                    top_n=self.top_n,
+                    top_n=50,
+                )
+                local = proximity_shortlist(
+                    local_pool,
+                    reference_ms=reference_ms,
+                    max_n=min(4, max(1, self.top_n)),
                 )
                 if self._cancelled():
                     return
@@ -509,15 +536,42 @@ class FilmCutWorker(QThread):
                 verdict = client.verify_candidates(
                     self.ffmpeg,
                     self.source,
-                    hint_ms,
+                    target_ms,
                     local,
                     subtitles,
                     allow_deep_check=self.allow_deep_check,
-                    force_deep_check=bool(broad.get("needs_video_check")),
+                    force_deep_check=True,
                 )
                 self.usage_changed.emit(client.usage.__dict__.copy())
                 if self._cancelled():
                     return
+
+                if str(verdict.get("decision") or "").upper() == "NO_VALID_CANDIDATE":
+                    no_cut_result = {
+                        "target_ms": target_ms,
+                        "target": format_ms(target_ms),
+                        "selected_time_ms": 0,
+                        "selected_time": "",
+                        "decision": "NO_CUT",
+                        "needs_review": False,
+                        "confidence": float(verdict.get("confidence") or 0.0),
+                        "reason": str(
+                            verdict.get("reason")
+                            or "Tidak ada kandidat terdekat yang valid sebagai boundary scene."
+                        ),
+                        "expanded_ms": expanded_ms,
+                        "analysis_mode": (
+                            "fixed-grid+nearest-first+short-video+srt+no-valid-candidate"
+                        ),
+                        "local_candidates": [x.to_dict() for x in local],
+                        "cached": False,
+                        "usage": client.usage.__dict__.copy(),
+                    }
+                    results.append(no_cut_result)
+                    self._save_cache(results)
+                    self.target_result.emit(no_cut_result)
+                    self.usage_changed.emit(client.usage.__dict__.copy())
+                    continue
 
                 self.progress_changed.emit(
                     part_index, estimated_total, "Mengunci ke frame PTS master"
