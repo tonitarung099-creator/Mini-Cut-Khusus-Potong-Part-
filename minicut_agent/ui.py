@@ -119,77 +119,138 @@ class MiniCutWindow(QMainWindow):
     # ---------- UI ----------
     def _build_ui(self):
         root = QWidget()
+        root.setObjectName("Root")
         outer = QVBoxLayout(root)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        toolbar = QHBoxLayout()
-        self.open_video_btn = QPushButton("Buka Video")
-        self.open_project_btn = QPushButton("Buka Proyek")
-        self.save_btn = QPushButton("Simpan Proyek")
-        self.export_btn = QPushButton("Ekspor Semua Part")
+        # Filmora-inspired top command bar.
+        topbar = QWidget()
+        topbar.setObjectName("TopBar")
+        top = QHBoxLayout(topbar)
+        top.setContentsMargins(16, 10, 16, 10)
+        top.setSpacing(8)
+
+        brand = QLabel("MINI CUT")
+        brand.setObjectName("Brand")
+        subtitle = QLabel("AI PART EDITOR")
+        subtitle.setObjectName("BrandSub")
+        top.addWidget(brand)
+        top.addWidget(subtitle)
+        top.addSpacing(18)
+
+        self.open_video_btn = QPushButton("＋ Media")
+        self.open_project_btn = QPushButton("Open Project")
+        self.save_btn = QPushButton("Save")
+        self.export_btn = QPushButton("Export Parts")
+        self.export_btn.setObjectName("PrimaryButton")
         self.export_mode = QComboBox()
         self.export_mode.addItem("SmartCut · Frame Accurate", "smartcut")
         self.export_mode.addItem("Fast Copy · Keyframe", "fast")
-        for b in (self.open_video_btn, self.open_project_btn, self.save_btn, self.export_btn):
-            toolbar.addWidget(b)
-        toolbar.addWidget(self.export_mode)
-        toolbar.addStretch(1)
-        outer.addLayout(toolbar)
+        top.addWidget(self.open_video_btn)
+        top.addWidget(self.open_project_btn)
+        top.addWidget(self.save_btn)
+        top.addStretch(1)
+        top.addWidget(self.export_mode)
+        top.addWidget(self.export_btn)
+        outer.addWidget(topbar)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        outer.addWidget(splitter, 1)
+        # Workspace: media bin | viewer | AI inspector.
+        vertical = QSplitter(Qt.Orientation.Vertical)
+        vertical.setObjectName("MainVerticalSplitter")
+        workspace = QSplitter(Qt.Orientation.Horizontal)
+        workspace.setObjectName("WorkspaceSplitter")
+
+        media = self._media_panel()
+        workspace.addWidget(media)
 
         preview = QWidget()
+        preview.setObjectName("PreviewPanel")
         pv = QVBoxLayout(preview)
+        pv.setContentsMargins(10, 10, 10, 8)
+        pv.setSpacing(8)
+
+        preview_header = QHBoxLayout()
+        preview_title = QLabel("PLAYER")
+        preview_title.setObjectName("SectionTitle")
+        self.review_badge = QLabel("SMOOTH REVIEW")
+        self.review_badge.setObjectName("Badge")
+        preview_header.addWidget(preview_title)
+        preview_header.addStretch(1)
+        preview_header.addWidget(self.review_badge)
+        pv.addLayout(preview_header)
+
         self.video = QVideoWidget()
-        self.video.setMinimumSize(520, 300)
+        self.video.setObjectName("VideoSurface")
+        self.video.setMinimumSize(560, 315)
         self.player.setVideoOutput(self.video)
         pv.addWidget(self.video, 1)
 
         self.timeline = TimelineSlider()
+        self.timeline.setObjectName("ViewerTimeline")
         self.timeline.setRange(0, 0)
         pv.addWidget(self.timeline)
 
         controls = QHBoxLayout()
-        self.back_btn = QPushButton("◀ 1 Frame")
-        self.play_btn = QPushButton("▶ Play")
-        self.forward_btn = QPushButton("1 Frame ▶")
+        controls.setSpacing(6)
+        self.back_btn = QPushButton("◀ Frame")
+        self.play_btn = QPushButton("▶")
+        self.play_btn.setObjectName("PlayButton")
+        self.forward_btn = QPushButton("Frame ▶")
         self.speed_combo = QComboBox()
         for label, rate in (("0.5x", 0.5), ("1x", 1.0), ("1.5x", 1.5), ("2x", 2.0), ("3x", 3.0), ("4x", 4.0)):
             self.speed_combo.addItem(label, rate)
         self.speed_combo.setCurrentIndex(1)
         self.preview_combo = QComboBox()
-        self.preview_combo.addItem("Preview: Proxy Otomatis", "proxy")
-        self.preview_combo.addItem("Preview: Original", "original")
+        self.preview_combo.addItem("Smooth Proxy", "proxy")
+        self.preview_combo.addItem("Original", "original")
         self.proxy_status_label = QLabel("Proxy: belum dibuat")
+        self.proxy_status_label.setObjectName("MutedLabel")
         self.position_label = QLabel("00:00:00.000 / 00:00:00.000")
+        self.position_label.setObjectName("Timecode")
         controls.addWidget(self.back_btn)
         controls.addWidget(self.play_btn)
         controls.addWidget(self.forward_btn)
-        controls.addWidget(QLabel("Speed:"))
+        controls.addSpacing(6)
+        controls.addWidget(QLabel("Speed"))
         controls.addWidget(self.speed_combo)
         controls.addWidget(self.preview_combo)
         controls.addWidget(self.proxy_status_label)
-        controls.addWidget(self.position_label, 1)
+        controls.addStretch(1)
+        controls.addWidget(self.position_label)
         pv.addLayout(controls)
-        splitter.addWidget(preview)
+        workspace.addWidget(preview)
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._parts_tab(), "Timeline Part")
-        self.tabs.addTab(self._agent_tab(), "AI Agent")
+        self.tabs.setObjectName("InspectorTabs")
         self.tabs.addTab(self._film_cut_tab(), "AI Film Cut")
+        self.tabs.addTab(self._agent_tab(), "AI Agent")
         self.tabs.addTab(self._gemini_keys_tab(), "Gemini API")
         self.tabs.addTab(self._log_tab(), "Log")
-        splitter.addWidget(self.tabs)
-        splitter.setSizes([820, 460])
+        workspace.addWidget(self.tabs)
+        workspace.setSizes([220, 820, 430])
 
+        vertical.addWidget(workspace)
+
+        timeline_panel = self._parts_tab()
+        timeline_panel.setObjectName("TimelinePanel")
+        vertical.addWidget(timeline_panel)
+        vertical.setSizes([620, 260])
+        outer.addWidget(vertical, 1)
+
+        footer = QWidget()
+        footer.setObjectName("Footer")
+        bottom = QHBoxLayout(footer)
+        bottom.setContentsMargins(12, 6, 12, 6)
+        self.status = QLabel("Buka video untuk mulai.")
+        self.status.setObjectName("StatusLabel")
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
-        self.status = QLabel("Buka video untuk mulai.")
-        bottom = QHBoxLayout()
+        self.progress.setMaximumWidth(260)
         bottom.addWidget(self.status, 1)
         bottom.addWidget(self.progress)
-        outer.addLayout(bottom)
+        outer.addWidget(footer)
 
         self.setCentralWidget(root)
 
@@ -197,12 +258,299 @@ class MiniCutWindow(QMainWindow):
         self.open_project_btn.clicked.connect(self._choose_project)
         self.save_btn.clicked.connect(lambda: self.tool_save_project())
         self.export_btn.clicked.connect(lambda: self.tool_export_all())
+        self.media_open_btn.clicked.connect(self._choose_video)
         self.play_btn.clicked.connect(self._toggle_play)
         self.back_btn.clicked.connect(lambda: self._step_frame(-1))
         self.forward_btn.clicked.connect(lambda: self._step_frame(1))
         self.speed_combo.currentIndexChanged.connect(self._playback_rate_changed)
         self.preview_combo.currentIndexChanged.connect(self._preview_mode_changed)
-        self.timeline.sliderMoved.connect(self.tool_seek)
+
+        # Throttled scrubbing: do not hammer QMediaPlayer with a seek for every pixel.
+        self.scrub_timer = QTimer(self)
+        self.scrub_timer.setInterval(45)
+        self.scrub_timer.timeout.connect(self._flush_scrub)
+        self.timeline.sliderPressed.connect(self._scrub_started)
+        self.timeline.sliderMoved.connect(self._queue_scrub)
+        self.timeline.sliderReleased.connect(self._scrub_finished)
+
+    def _media_panel(self):
+        panel = QWidget()
+        panel.setObjectName("MediaPanel")
+        panel.setMinimumWidth(190)
+        panel.setMaximumWidth(285)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        title = QLabel("PROJECT MEDIA")
+        title.setObjectName("SectionTitle")
+        layout.addWidget(title)
+
+        self.media_open_btn = QPushButton("＋ Import Video")
+        self.media_open_btn.setObjectName("PrimaryButton")
+        layout.addWidget(self.media_open_btn)
+
+        card = QWidget()
+        card.setObjectName("MediaCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        self.media_name_label = QLabel("No media loaded")
+        self.media_name_label.setObjectName("MediaName")
+        self.media_name_label.setWordWrap(True)
+        self.media_meta_label = QLabel("Drag & drop video di sini")
+        self.media_meta_label.setObjectName("MutedLabel")
+        self.media_meta_label.setWordWrap(True)
+        card_layout.addWidget(self.media_name_label)
+        card_layout.addWidget(self.media_meta_label)
+        layout.addWidget(card)
+
+        review_title = QLabel("REVIEW")
+        review_title.setObjectName("SectionTitle")
+        layout.addWidget(review_title)
+        review_note = QLabel(
+            "Smooth Proxy memakai file preview 480p lokal. Master asli tetap dipakai untuk "
+            "AI, exact-frame, dan export."
+        )
+        review_note.setObjectName("MutedLabel")
+        review_note.setWordWrap(True)
+        layout.addWidget(review_note)
+        layout.addStretch(1)
+        return panel
+
+    def _apply_modern_theme(self):
+        self.setMinimumSize(1180, 720)
+        self.setStyleSheet("""
+            QMainWindow, QWidget#Root {
+                background: #0f1117;
+                color: #e8eaf0;
+                font-family: "Segoe UI";
+                font-size: 10pt;
+            }
+            QWidget#TopBar {
+                background: #12151c;
+                border-bottom: 1px solid #272b36;
+            }
+            QLabel#Brand {
+                color: #ffffff;
+                font-size: 15pt;
+                font-weight: 800;
+                letter-spacing: 1px;
+            }
+            QLabel#BrandSub, QLabel#MutedLabel {
+                color: #858b9b;
+            }
+            QLabel#SectionTitle {
+                color: #aeb4c3;
+                font-size: 9pt;
+                font-weight: 700;
+                letter-spacing: 1px;
+            }
+            QLabel#Badge {
+                color: #bcaeff;
+                background: #241d43;
+                border: 1px solid #4c3d83;
+                border-radius: 9px;
+                padding: 3px 8px;
+                font-size: 8pt;
+                font-weight: 700;
+            }
+            QLabel#Timecode {
+                color: #d9dce6;
+                font-family: "Consolas";
+                font-weight: 600;
+            }
+            QLabel#MediaName {
+                color: #ffffff;
+                font-weight: 700;
+            }
+            QWidget#MediaPanel, QWidget#PreviewPanel, QWidget#TimelinePanel {
+                background: #151820;
+            }
+            QWidget#MediaCard {
+                background: #1b1f29;
+                border: 1px solid #2a2f3b;
+                border-radius: 10px;
+            }
+            QVideoWidget#VideoSurface {
+                background: #050608;
+                border: 1px solid #2b303c;
+                border-radius: 8px;
+            }
+            QTabWidget#InspectorTabs::pane {
+                border: 0px;
+                background: #151820;
+            }
+            QTabBar::tab {
+                background: #151820;
+                color: #8e95a6;
+                padding: 10px 12px;
+                border: 0px;
+                border-bottom: 2px solid transparent;
+            }
+            QTabBar::tab:selected {
+                color: #ffffff;
+                border-bottom: 2px solid #8b6cff;
+            }
+            QPushButton {
+                background: #222733;
+                color: #e7e9ef;
+                border: 1px solid #303645;
+                border-radius: 7px;
+                padding: 7px 11px;
+            }
+            QPushButton:hover {
+                background: #2a3040;
+                border-color: #454d61;
+            }
+            QPushButton:pressed {
+                background: #1b1f29;
+            }
+            QPushButton:disabled {
+                color: #5f6573;
+                background: #191c24;
+                border-color: #242833;
+            }
+            QPushButton#PrimaryButton {
+                background: #7c5cff;
+                color: white;
+                border: 1px solid #9178ff;
+                font-weight: 700;
+            }
+            QPushButton#PrimaryButton:hover {
+                background: #8b6cff;
+            }
+            QPushButton#PlayButton {
+                min-width: 38px;
+                font-size: 12pt;
+                background: #f1f3f8;
+                color: #101219;
+                border: 0px;
+            }
+            QComboBox, QLineEdit, QSpinBox, QPlainTextEdit {
+                background: #1b1f29;
+                color: #e7e9ef;
+                border: 1px solid #303645;
+                border-radius: 7px;
+                padding: 6px 8px;
+                selection-background-color: #7c5cff;
+            }
+            QComboBox::drop-down {
+                border: 0px;
+                width: 24px;
+            }
+            QTableWidget {
+                background: #14171e;
+                alternate-background-color: #181c25;
+                color: #dfe2ea;
+                border: 1px solid #2a2f3b;
+                border-radius: 7px;
+                gridline-color: #252a35;
+                selection-background-color: #39305f;
+            }
+            QHeaderView::section {
+                background: #1b1f29;
+                color: #9da4b5;
+                border: 0px;
+                border-right: 1px solid #292e39;
+                border-bottom: 1px solid #292e39;
+                padding: 6px;
+                font-weight: 700;
+            }
+            QSlider::groove:horizontal {
+                height: 5px;
+                background: #2b303b;
+                border-radius: 2px;
+            }
+            QSlider::sub-page:horizontal {
+                background: #8b6cff;
+                border-radius: 2px;
+            }
+            QSlider::handle:horizontal {
+                width: 13px;
+                margin: -5px 0;
+                background: #ffffff;
+                border: 2px solid #8b6cff;
+                border-radius: 7px;
+            }
+            QProgressBar {
+                background: #1b1f29;
+                border: 1px solid #2d3340;
+                border-radius: 5px;
+                text-align: center;
+                color: #dfe2ea;
+                min-height: 15px;
+            }
+            QProgressBar::chunk {
+                background: #7c5cff;
+                border-radius: 4px;
+            }
+            QWidget#Footer {
+                background: #11141a;
+                border-top: 1px solid #252a34;
+            }
+            QLabel#StatusLabel {
+                color: #9ca3b3;
+            }
+            QSplitter::handle {
+                background: #242934;
+            }
+            QSplitter::handle:horizontal {
+                width: 2px;
+            }
+            QSplitter::handle:vertical {
+                height: 2px;
+            }
+            QToolTip {
+                background: #20242e;
+                color: white;
+                border: 1px solid #3b4252;
+                padding: 5px;
+            }
+        """)
+
+    def _install_shortcuts(self):
+        self.shortcut_play = QShortcut(QKeySequence("Space"), self)
+        self.shortcut_play.activated.connect(self._toggle_play)
+        self.shortcut_prev = QShortcut(QKeySequence("Left"), self)
+        self.shortcut_prev.activated.connect(lambda: self._step_frame(-1))
+        self.shortcut_next = QShortcut(QKeySequence("Right"), self)
+        self.shortcut_next.activated.connect(lambda: self._step_frame(1))
+        self.shortcut_open = QShortcut(QKeySequence("Ctrl+O"), self)
+        self.shortcut_open.activated.connect(self._choose_video)
+        self.shortcut_save = QShortcut(QKeySequence("Ctrl+S"), self)
+        self.shortcut_save.activated.connect(lambda: self.tool_save_project())
+
+    def _scrub_started(self):
+        self._scrub_resume_after = (
+            self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+        )
+        if self._scrub_resume_after:
+            self.player.pause()
+        self._scrub_pending_ms = int(self.timeline.value())
+        if not self.scrub_timer.isActive():
+            self.scrub_timer.start()
+
+    def _queue_scrub(self, value: int):
+        self._scrub_pending_ms = int(value)
+        self.position_label.setText(
+            f"{clock_text(int(value))} / {clock_text(self.model.duration_ms)}"
+        )
+
+    def _flush_scrub(self):
+        if self._scrub_pending_ms is None:
+            return
+        ms = self.model.clamp(int(self._scrub_pending_ms))
+        self._scrub_pending_ms = None
+        self.player.setPosition(ms)
+        self.model.playhead_ms = ms
+
+    def _scrub_finished(self):
+        self._scrub_pending_ms = int(self.timeline.value())
+        self._flush_scrub()
+        self.scrub_timer.stop()
+        if self._scrub_resume_after:
+            self.player.play()
+        self._scrub_resume_after = False
 
     def _parts_tab(self):
         w = QWidget()
