@@ -266,7 +266,11 @@ class GeminiClient:
         # dinilai tidak valid sebagai boundary scene.
         ordered = sorted(
             candidates,
-            key=lambda x: (int(x.distance_ms), -float(x.score), int(x.time_ms)),
+            key=lambda x: (
+                abs(int(x.time_ms) - int(target_ms)),
+                -float(x.score),
+                int(x.time_ms),
+            ),
         )[:4]
 
         if allow_deep_check:
@@ -828,16 +832,17 @@ def _deep_check_prompt(
     rows = []
     for idx in candidate_indexes:
         candidate = candidates[idx - 1]
+        distance_ms = abs(candidate.time_ms - target_ms)
         tier = (
             "±45 dtk"
-            if candidate.distance_ms <= 45_000
+            if distance_ms <= 45_000
             else "±90 dtk"
-            if candidate.distance_ms <= 90_000
-            else "±120 dtk"
+            if distance_ms <= 90_000
+            else "±120 dtk / lebih"
         )
         rows.append(
             f"KANDIDAT {idx}: {format_ms(candidate.time_ms)} | "
-            f"jarak={candidate.distance_ms/1000:.1f}s | prioritas={tier} | "
+            f"jarak={distance_ms/1000:.1f}s | prioritas={tier} | "
             f"visual_change={candidate.visual} | silence={candidate.silence} | "
             f"subtitle_gap={candidate.subtitle_gap} | subtitle_safe={candidate.subtitle_safe}"
         )
