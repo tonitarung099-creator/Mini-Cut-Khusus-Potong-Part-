@@ -1739,28 +1739,43 @@ class MiniCutWindow(QMainWindow):
         row = self.film_table.rowCount()
         self.film_table.insertRow(row)
         confidence = float(result.get("confidence") or 0)
-        review = bool(result.get("needs_review")) or confidence < 0.55
-        semantic_time = str(
-            result.get("semantic_preferred_time")
-            or result.get("candidate_time")
-            or clock_text(int(result.get("semantic_preferred_ms") or 0))
-        )
-        frame_time = str(
-            result.get("selected_time")
-            or clock_text(int(result.get("selected_time_ms") or 0))
-        )
-        intent = str(result.get("cut_intent") or "semantic_boundary")
-        frame_ok = bool(result.get("frame_verified"))
-        if review:
-            status_text = "REVIEW"
-        elif result.get("cached"):
-            status_text = "CACHE"
-        elif result.get("deep_check_used"):
-            status_text = "DEEP · OK"
+        decision = str(result.get("decision") or result.get("broad_decision") or "").upper()
+        selected_ms = int(result.get("selected_time_ms") or 0)
+        no_cut = selected_ms <= 0 or decision in {
+            "NO_CUT", "NO_CUT_MAX_EXPAND", "SKIPPED_AFTER_PREVIOUS_CUT"
+        }
+        review = bool(result.get("needs_review")) or (not no_cut and confidence < 0.55)
+
+        if no_cut:
+            semantic_time = "—"
+            frame_time = "—"
+            intent = "scene_continues"
+            if decision == "SKIPPED_AFTER_PREVIOUS_CUT":
+                status_text = "SKIP · GRID TERLEWATI"
+            else:
+                status_text = "NO CUT · SCENE LANJUT"
         else:
-            status_text = "STORYBOARD · OK"
-        if not frame_ok:
-            status_text += " · NO FRAME LOCK"
+            semantic_time = str(
+                result.get("semantic_preferred_time")
+                or result.get("candidate_time")
+                or clock_text(int(result.get("semantic_preferred_ms") or 0))
+            )
+            frame_time = str(
+                result.get("selected_time")
+                or clock_text(selected_ms)
+            )
+            intent = str(result.get("cut_intent") or "semantic_boundary")
+            frame_ok = bool(result.get("frame_verified"))
+            if review:
+                status_text = "REVIEW"
+            elif result.get("cached"):
+                status_text = "CACHE"
+            elif result.get("deep_check_used"):
+                status_text = "DEEP · OK"
+            else:
+                status_text = "SCENE · OK"
+            if not frame_ok:
+                status_text += " · NO FRAME LOCK"
         values = [
             str(result.get("target") or clock_text(target_ms)),
             semantic_time,
@@ -1773,7 +1788,11 @@ class MiniCutWindow(QMainWindow):
         for col, value in enumerate(values):
             self.film_table.setItem(row, col, QTableWidgetItem(value))
 
-        preview_marks = [int(x.get("selected_time_ms") or 0) for x in self.film_cut_results]
+        preview_marks = [
+            int(x.get("selected_time_ms") or 0)
+            for x in self.film_cut_results
+            if int(x.get("selected_time_ms") or 0) > 0
+        ]
         self.timeline.set_marks(preview_marks)
 
     def _film_cut_usage(self, usage: dict):
@@ -1812,14 +1831,18 @@ class MiniCutWindow(QMainWindow):
             1 for x in self.film_cut_results
             if bool(x.get("needs_review")) or float(x.get("confidence") or 0) < 0.55
         )
-        self.film_apply_btn.setEnabled(bool(self.film_cut_results))
+        valid_cut_count = sum(
+            1 for x in self.film_cut_results
+            if int(x.get("selected_time_ms") or 0) > 0
+        )
+        self.film_apply_btn.setEnabled(valid_cut_count > 0)
         if review_count:
             self.film_status_label.setText(
                 f"Selesai · {len(results)} titik · {review_count} perlu review sebelum diterapkan."
             )
         else:
             self.film_status_label.setText(
-                f"Selesai · {len(results)} titik potong siap dipreview dan diterapkan."
+                f"Selesai · {valid_cut_count} cut natural dari {len(results)} target grid siap diterapkan."
             )
         self.status.setText("AI Film Cut selesai · belum diterapkan ke timeline.")
         if self._film_active_key_id:
