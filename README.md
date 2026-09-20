@@ -4,9 +4,10 @@ Aplikasi desktop Windows untuk membagi film/video menjadi beberapa part dengan b
 
 ## Fitur utama
 
-- **Scene Boundary Analyzer** — mengikuti logika pemotongan berbasis keutuhan adegan: patokan 15 menit hanya referensi, shot biasa bukan scene baru, dan keutuhan alur lebih penting daripada tepat waktu.
-- **Analisis adaptif Gemini** — MiniCut mencari **hingga 6 kandidat secara lokal**, lalu Gemini membandingkan **6-frame storyboard per kandidat + SRT**.
-- **Deep Check hemat** — video visual pendek ±5 detik hanya dikirim untuk 1–2 kandidat ketika storyboard masih ragu. Video ±2 menit tidak dikirim dan Deep Check tidak mengirim audio.
+- **Scene Boundary Analyzer** — grid target tetap absolut (mis. 15, 30, 45, 60 menit). Boundary natural boleh bergeser, tetapi tidak menggeser target berikutnya.
+- **Contact sheet + SRT sinkron** — untuk window awal ±2 menit, MiniCut membuat contact sheet lokal sekitar 1 frame/3 detik dan mengirim SRT pada blok waktu yang sama agar Gemini memahami visual + isi percakapan bersama-sama.
+- **NO CUT / Expand** — bila visual dan dialog masih satu rangkaian, Gemini boleh memilih NO CUT. MiniCut lalu menambah pencarian sekitar +3 menit tanpa memaksa cut dan tanpa menggeser grid target berikutnya.
+- **Refinement + Deep Check hemat** — setelah area boundary ditemukan, kandidat lokal diperiksa lebih rapat. Video visual pendek sekitar ±8 detik hanya dikirim jika boundary masih ambigu; audio tidak dikirim karena dialog dipahami dari SRT.
 - **SRT sebagai penjaga dialog** — membantu menghindari cut di tengah dialog/percakapan.
 - **Exact-frame resolver** — keputusan AI dikunci ke PTS frame asli dari master.
 - **SmartCut Frame Accurate** — default export; meminimalkan re-encode di sekitar titik potong.
@@ -20,21 +21,23 @@ Aplikasi desktop Windows untuk membagi film/video menjadi beberapa part dengan b
 ## Cara kerja AI Film Cut
 
 ```text
-Target sekitar 15 menit
+Grid target absolut: 15 → 30 → 45 → 60 → ...
         ↓
-MiniCut lokal scan ± window
+Window awal ±2 menit di target aktif
         ↓
-hingga 6 kandidat scene
+contact sheet 30 detik + SRT yang sinkron
         ↓
-Gemini: storyboard 6 frame + SRT
+Gemini memahami lokasi + waktu + kejadian + isi dialog
         ↓
-cukup yakin? ── tidak ──→ Deep Check video visual pendek kandidat terbaik
-        ↓ ya                         ↓
-        └──────── pilih batas scene natural
-                         ↓
-              MiniCut kunci ke PTS frame master
-                         ↓
-                   SmartCut export
+CUT_FOUND ? ── tidak ──→ NO CUT → tambah +3 menit → analisis bagian tambahan
+        ↓ ya
+refinement kandidat dekat boundary
+        ↓
+ambigu? ── ya ──→ video visual pendek + SRT
+        ↓
+exact frame PTS master
+        ↓
+SmartCut export
 ```
 
 Target 15 menit adalah patokan, bukan batas wajib. Perpindahan scene yang natural lebih diprioritaskan.
