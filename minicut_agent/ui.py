@@ -687,10 +687,10 @@ class MiniCutWindow(QMainWindow):
         layout = QVBoxLayout(w)
 
         intro = QLabel(
-            "Mode Scene Boundary Analyzer: MiniCut lokal mencari beberapa kandidat di sekitar "
-            "patokan, Gemini membandingkan storyboard 6 frame + SRT, lalu Deep Check video "
-            "visual pendek hanya dipakai jika tahap pertama masih ragu. Tidak ada video ±2 menit "
-            "yang dikirim. Hasil akhir tetap dikunci ke frame PTS nyata dan SmartCut."
+            "Target tetap pada grid 15, 30, 45, 60 menit, dst. Untuk setiap target, MiniCut "
+            "mengirim contact sheet visual + SRT yang sinkron. Jika masih satu scene, Gemini boleh "
+            "menjawab NO CUT dan pencarian target itu diperluas +3 menit tanpa menggeser target "
+            "berikutnya. Video pendek hanya dipakai untuk verifikasi boundary yang ambigu."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -735,8 +735,12 @@ class MiniCutWindow(QMainWindow):
         self.film_cache.setChecked(True)
         self.film_deep_check = QCheckBox("Deep Check otomatis jika storyboard masih ragu")
         self.film_deep_check.setChecked(True)
-        form.addRow("Target part", self.film_interval)
-        form.addRow("Cari sekitar target", self.film_window)
+        form.addRow("Grid target", self.film_interval)
+        form.addRow("Window awal ±", self.film_window)
+        grid_note = QLabel("Contoh 15 menit → target tetap 15:00, 30:00, 45:00, 60:00…")
+        grid_note.setObjectName("MutedLabel")
+        grid_note.setWordWrap(True)
+        form.addRow("Logika", grid_note)
         form.addRow("Verifikasi", self.film_deep_check)
         form.addRow("Resume", self.film_cache)
         layout.addLayout(form)
@@ -1704,11 +1708,12 @@ class MiniCutWindow(QMainWindow):
         self.film_cut_worker.failed.connect(self._film_cut_failed)
         self.film_cut_worker.cancelled.connect(self._film_cut_cancelled)
         self.film_status_label.setText(
-            "Scene Boundary Analyzer: kandidat lokal → storyboard 6 frame + SRT → "
-            "Deep Check jika perlu → frame resolver."
+            "Grid tetap 15/30/45/60… · contact sheet + SRT sinkron · "
+            "NO CUT boleh diperluas +3 menit · Deep Check jika perlu."
         )
         self._log(
-            "AI Film Cut: 6 kandidat lokal → storyboard+SRT → Deep Check adaptif → frame PTS nyata."
+            "AI Film Cut: grid target absolut → contact sheet+SRT → NO CUT/expand → "
+            "refinement → frame PTS nyata."
         )
         self.film_cut_worker.start()
 
