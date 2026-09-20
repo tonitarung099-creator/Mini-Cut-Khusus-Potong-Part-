@@ -83,6 +83,28 @@ class SubtitleTrack:
             )
         return "\n".join(rows)[:max_chars]
 
+    def between(self, start_ms: int, end_ms: int) -> list[SubtitleCue]:
+        """Subtitle yang bertumpang-tindih dengan rentang waktu tertentu."""
+        lo, hi = int(start_ms), int(end_ms)
+        return [
+            cue for cue in self.cues
+            if cue.end_ms >= lo and cue.start_ms < hi
+        ]
+
+    def between_text(
+        self,
+        start_ms: int,
+        end_ms: int,
+        max_chars: int = 3200,
+    ) -> str:
+        """SRT bertimestamp untuk dipasangkan dengan blok visual yang sama."""
+        rows = []
+        for cue in self.between(start_ms, end_ms):
+            rows.append(
+                f"{format_ms(cue.start_ms)} --> {format_ms(cue.end_ms)} | {cue.text}"
+            )
+        return "\n".join(rows)[:max_chars]
+
 
     def dialogue_boundaries(self, start_ms: int, end_ms: int) -> list[int]:
         """Return local dialogue-edge hints for semantic cut discovery.
