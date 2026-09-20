@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from minicut_agent.candidates import rank_candidates, target_times
 from minicut_agent.frame_resolver import resolve_semantic_frame
-from minicut_agent.gemini import _bounded_offset
+from minicut_agent.gemini import _bounded_offset, _needs_deep_check
 from minicut_agent.subtitles import SubtitleTrack
 
 
@@ -91,9 +91,27 @@ class SemanticCutTests(unittest.TestCase):
         self.assertTrue(result["frame_verified"])
         self.assertEqual(result["time_ms"], 10110)
 
-    def test_semantic_offset_is_clamped_to_clip(self):
-        self.assertEqual(_bounded_offset(999999, 0), 1200)
-        self.assertEqual(_bounded_offset(-999999, 0), -1200)
+    def test_semantic_offset_is_clamped_to_deep_window(self):
+        self.assertEqual(_bounded_offset(999999, 0), 1500)
+        self.assertEqual(_bounded_offset(-999999, 0), -1500)
+
+    def test_low_confidence_requests_deep_check(self):
+        self.assertTrue(_needs_deep_check({
+            "confidence": 0.60,
+            "scene_change": True,
+            "dialog_safe": True,
+            "needs_review": False,
+        }))
+
+    def test_safe_high_confidence_skips_deep_check(self):
+        self.assertFalse(_needs_deep_check({
+            "confidence": 0.91,
+            "scene_change": True,
+            "dialog_safe": True,
+            "action_safe": True,
+            "needs_deep_check": False,
+            "needs_review": False,
+        }))
 
 
 if __name__ == "__main__":
