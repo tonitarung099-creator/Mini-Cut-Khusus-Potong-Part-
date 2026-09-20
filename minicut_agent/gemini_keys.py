@@ -8,7 +8,7 @@ import time
 import uuid
 from ctypes import wintypes
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -333,18 +333,31 @@ class GeminiKeyStore:
         def pct(used: int, limit: int) -> float:
             return round((used / max(1, limit)) * 100, 1)
 
+        now_pacific = datetime.now(PACIFIC)
+        tomorrow = now_pacific.date() + timedelta(days=1)
+        reset_at = datetime(
+            tomorrow.year, tomorrow.month, tomorrow.day,
+            0, 0, 0, tzinfo=PACIFIC
+        )
+        reset_seconds = max(0, int((reset_at - now_pacific).total_seconds()))
+
         return {
             "status": str(u.get("status") or "unknown"),
             "last_error": str(u.get("last_error") or ""),
             "last_checked": str(u.get("last_checked") or ""),
             "rpm_used": rpm_used,
             "rpm_limit": rpm_limit,
+            "rpm_remaining": max(0, rpm_limit - rpm_used),
             "rpm_pct": pct(rpm_used, rpm_limit),
             "tpm_used": tpm_used,
             "tpm_limit": tpm_limit,
+            "tpm_remaining": max(0, tpm_limit - tpm_used),
             "tpm_pct": pct(tpm_used, tpm_limit),
             "rpd_used": rpd_used,
             "rpd_limit": rpd_limit,
+            "rpd_remaining": max(0, rpd_limit - rpd_used),
             "rpd_pct": pct(rpd_used, rpd_limit),
             "day": u.get("day"),
+            "rpd_reset_seconds": reset_seconds,
+            "rpd_reset_at": reset_at.isoformat(timespec="seconds"),
         }
