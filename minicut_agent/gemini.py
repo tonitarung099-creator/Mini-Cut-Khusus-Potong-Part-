@@ -28,7 +28,7 @@ CONTACT_CELL_WIDTH = 192
 STORYBOARD_OFFSETS_MS = (-5000, -1200, 1200, 5000)
 FRAME_WIDTH = 416
 DEEP_CHECK_CONFIDENCE = 0.72
-DEEP_CHECK_RADIUS_MS = 5000
+DEEP_CHECK_RADIUS_MS = 8000
 DEEP_CHECK_WIDTH = 360
 DEEP_CHECK_FPS = 8
 SEMANTIC_ZONE_LIMIT_MS = 1500
@@ -233,6 +233,7 @@ class GeminiClient:
         subtitles: SubtitleTrack | None,
         frame_width: int = FRAME_WIDTH,
         allow_deep_check: bool = True,
+        force_deep_check: bool = False,
     ) -> dict[str, Any]:
         if not candidates:
             raise ValueError("Tidak ada kandidat untuk diverifikasi Gemini.")
@@ -284,7 +285,9 @@ class GeminiClient:
             result.get("alternate_candidate_index"), len(candidates), selected_index
         )
 
-        deep_needed = allow_deep_check and _needs_deep_check(result)
+        deep_needed = allow_deep_check and (
+            bool(force_deep_check) or _needs_deep_check(result)
+        )
         if deep_needed:
             if alternate_index is None:
                 alternate_index = _best_alternate_index(candidates, selected_index)
@@ -439,6 +442,7 @@ def _needs_deep_check(result: dict[str, Any]) -> bool:
         confidence = 0.0
     return bool(
         result.get("needs_deep_check")
+        or result.get("needs_video_check")
         or result.get("needs_review")
         or not result.get("scene_change", False)
         or not result.get("dialog_safe", False)
