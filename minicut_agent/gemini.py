@@ -242,7 +242,9 @@ class GeminiClient:
         # dalam satu keputusan, tetapi tidak menerima video ±2 menit.
         prompt = _storyboard_prompt(target_ms, candidates, subtitles)
         parts: list[dict[str, Any]] = [{"text": prompt}]
-        labels = ("-8s", "-4s", "-1s", "+1s", "+4s", "+8s")
+        labels = tuple(
+            f"{offset / 1000:+g}s" for offset in STORYBOARD_OFFSETS_MS
+        )
 
         for i, candidate in enumerate(candidates, 1):
             parts.append({
@@ -553,7 +555,7 @@ def extract_silent_context_clip_mp4(
     width: int = DEEP_CHECK_WIDTH,
     fps: int = DEEP_CHECK_FPS,
 ) -> bytes:
-    radius_ms = max(3000, min(int(radius_ms), 7000))
+    radius_ms = max(3000, min(int(radius_ms), 12_000))
     start_ms = max(0, int(center_ms) - radius_ms)
     duration_ms = radius_ms * 2
     with tempfile.TemporaryDirectory(prefix="minicut-deep-") as td:
@@ -764,7 +766,7 @@ DEEP CHECK titik potong film sekitar patokan {format_ms(target_ms)}.
 Anda hanya membandingkan kandidat berikut:
 {chr(10).join(rows)}
 
-Anda menerima VIDEO VISUAL PENDEK sekitar ±5 detik untuk setiap kandidat.
+Anda menerima VIDEO VISUAL PENDEK sekitar ±8 detik untuk setiap kandidat.
 VIDEO TIDAK MEMILIKI AUDIO. Jangan mengarang fakta audio.
 Gunakan SRT untuk dialog.
 
