@@ -177,7 +177,7 @@ class FilmCutWorker(QThread):
     failed = Signal(str)
     cancelled = Signal()
 
-    CACHE_VERSION = 4
+    CACHE_VERSION = 5
 
     def __init__(
         self,
@@ -190,8 +190,9 @@ class FilmCutWorker(QThread):
         model: str,
         interval_ms: int = 15 * 60_000,
         window_ms: int = 2 * 60_000,
-        top_n: int = 3,
+        top_n: int = 6,
         use_cache: bool = True,
+        allow_deep_check: bool = True,
     ):
         super().__init__()
         self.ffmpeg = ffmpeg
@@ -205,6 +206,7 @@ class FilmCutWorker(QThread):
         self.window_ms = int(window_ms)
         self.top_n = int(top_n)
         self.use_cache = bool(use_cache)
+        self.allow_deep_check = bool(allow_deep_check)
         self._cancel = False
 
     @property
@@ -225,6 +227,8 @@ class FilmCutWorker(QThread):
                 and data.get("srt") == str(self.srt_path.resolve())
                 and int(data.get("interval_ms") or 0) == self.interval_ms
                 and int(data.get("window_ms") or 0) == self.window_ms
+                and int(data.get("top_n") or 0) == self.top_n
+                and bool(data.get("allow_deep_check")) == self.allow_deep_check
                 and data.get("model") == self.model
             )
             if not valid:
@@ -242,6 +246,8 @@ class FilmCutWorker(QThread):
             "srt": str(self.srt_path.resolve()),
             "interval_ms": self.interval_ms,
             "window_ms": self.window_ms,
+            "top_n": self.top_n,
+            "allow_deep_check": self.allow_deep_check,
             "model": self.model,
             "results": results,
         }
@@ -283,13 +289,18 @@ class FilmCutWorker(QThread):
                     self.cancelled.emit()
                     return
 
-                self.progress_changed.emit(index, len(targets), "Gemini memilih perpindahan scene")
+                self.progress_changed.emit(
+                    index,
+                    len(targets),
+                    "Gemini storyboard + SRT · Deep Check bila perlu",
+                )
                 verdict = client.verify_candidates(
                     self.ffmpeg,
                     self.source,
                     target_ms,
                     local,
                     subtitles,
+                    allow_deep_check=self.allow_deep_check,
                 )
                 if self._cancel:
                     self.cancelled.emit()
