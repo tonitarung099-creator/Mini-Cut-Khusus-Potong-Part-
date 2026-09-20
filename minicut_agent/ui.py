@@ -27,7 +27,10 @@ from .core import (
 from .gemini import DEFAULT_MODEL
 from .frame_resolver import probe_frame_timestamps
 from .gemini_keys import GeminiKeyStore, MAX_GEMINI_KEYS
-from .workers import AgentWorker, AnalyzeWorker, ExportWorker, FilmCutWorker, GeminiTestWorker, ProxyWorker
+from .workers import (
+    AgentWorker, AnalyzeWorker, ExportWorker, FilmCutWorker,
+    GeminiBatchTestWorker, GeminiTestWorker, ProxyWorker
+)
 
 
 class TimelineSlider(QSlider):
@@ -68,6 +71,7 @@ class MiniCutWindow(QMainWindow):
         self.export_worker: ExportWorker | None = None
         self.agent_worker: AgentWorker | None = None
         self.gemini_test_worker: GeminiTestWorker | None = None
+        self.gemini_batch_worker: GeminiBatchTestWorker | None = None
         self.film_cut_worker: FilmCutWorker | None = None
         self.proxy_worker: ProxyWorker | None = None
         self.preview_proxy: Path | None = None
