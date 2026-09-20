@@ -717,9 +717,9 @@ LOGIKA WAJIB:
 9. Jangan mengarang timestamp baru. Pilih kandidat yang tersedia.
 10. Jika storyboard tidak cukup untuk memastikan gerakan/transisi, minta Deep Check.
 
-Anda menerima storyboard 6 frame per kandidat:
--8s, -4s, -1s, +1s, +4s, +8s.
-Tidak ada video/audio pada tahap ini.
+Anda menerima storyboard refinement 4 frame per kandidat:
+-5s, -1.2s, +1.2s, +5s.
+Tidak ada video/audio pada tahap ini kecuali Deep Check memang diperlukan.
 
 Kandidat:
 {chr(10).join(rows)}
