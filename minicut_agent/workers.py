@@ -7,7 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 
 from .candidates import find_candidates_for_target, proximity_shortlist, target_times
-from .core import build_preview_proxy, export_segments, export_segments_smartcut, probe_keyframes, probe_media
+from .core import export_segments, export_segments_smartcut, probe_keyframes, probe_media
 from .gemini import GeminiClient
 from .gemini_keys import model_limits
 from .frame_resolver import resolve_requested_frame, resolve_semantic_frame
@@ -27,54 +27,6 @@ class AnalyzeWorker(QThread):
             metadata = probe_media(self.source, self.ffprobe)
             keyframes = probe_keyframes(self.source, self.ffprobe)
             self.ready.emit(metadata, keyframes)
-        except Exception as exc:
-            self.failed.emit(str(exc))
-
-
-class ProxyWorker(QThread):
-    progress_changed = Signal(int, str)
-    log_line = Signal(str)
-    ready = Signal(str)
-    failed = Signal(str)
-    cancelled = Signal()
-
-    def __init__(
-        self,
-        ffmpeg: str,
-        source: Path,
-        output: Path,
-        duration_ms: int,
-        source_height: int,
-        fps: float,
-    ):
-        super().__init__()
-        self.ffmpeg = ffmpeg
-        self.source = source
-        self.output = output
-        self.duration_ms = int(duration_ms)
-        self.source_height = int(source_height or 0)
-        self.fps = float(fps or 0.0)
-        self._cancel = False
-
-    def cancel(self):
-        self._cancel = True
-
-    def run(self):
-        try:
-            path = build_preview_proxy(
-                self.ffmpeg,
-                self.source,
-                self.output,
-                self.duration_ms,
-                source_height=self.source_height,
-                fps=self.fps,
-                progress=lambda p, t: self.progress_changed.emit(p, t),
-                log=lambda s: self.log_line.emit(s),
-                cancelled=lambda: self._cancel,
-            )
-            self.ready.emit(str(path))
-        except InterruptedError:
-            self.cancelled.emit()
         except Exception as exc:
             self.failed.emit(str(exc))
 
