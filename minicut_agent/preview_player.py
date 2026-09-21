@@ -234,12 +234,13 @@ class PreviewPlayer(QObject):
                 return False
         return self._qt.playbackState() == QMediaPlayer.PlaybackState.PlayingState
 
-    def set_position(self, ms: int) -> None:
+    def set_position(self, ms: int, exact: bool = True) -> None:
         ms = max(0, int(ms))
         self._last_position = ms
         if self.using_mpv:
             try:
-                self._mpv.command("seek", f"{ms / 1000:.6f}", "absolute+exact")
+                mode = "absolute+exact" if exact else "absolute+keyframes"
+                self._mpv.command("seek", f"{ms / 1000:.6f}", mode)
                 self.positionChanged.emit(ms)
             except Exception as exc:
                 self.errorOccurred.emit("mpv seek: " + str(exc))
