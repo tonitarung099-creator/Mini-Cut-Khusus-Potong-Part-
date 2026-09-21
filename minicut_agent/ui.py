@@ -1265,6 +1265,18 @@ class MiniCutWindow(QMainWindow):
         self._switch_player_media(source, resume=False)
         self.timeline.setRange(0, max(0, self.model.duration_ms))
         self.undo_stack.clear()
+
+        # Subtitle dan hasil AI selalu terkait video tertentu. Jangan membawa
+        # SRT/hasil Film Cut dari media sebelumnya ke video yang baru dibuka.
+        self.srt_path = None
+        if hasattr(self, "srt_edit"):
+            self.srt_edit.clear()
+            self.srt_edit.setPlaceholderText("Belum ada SRT")
+        if hasattr(self, "film_status_label"):
+            self.film_status_label.setText(
+                "Video baru dibuka. Pilih SRT yang sesuai sebelum Analisis Film."
+            )
+
         self.film_cut_results = []
         if hasattr(self, 'film_table'):
             self.film_table.setRowCount(0)
@@ -1432,6 +1444,22 @@ class MiniCutWindow(QMainWindow):
     # ---------- manual operations ----------
     def _snapshot(self) -> list[CutPoint]:
         return [CutPoint(c.requested_ms, c.actual_ms) for c in self.model.cuts]
+
+    def tool_transaction_snapshot(self) -> dict:
+        return {
+            "cuts": self._snapshot(),
+            "dirty": bool(self.model.dirty),
+        }
+
+    def tool_transaction_restore(self, snapshot: dict) -> None:
+        cuts = snapshot.get("cuts") or []
+        self.model.cuts = [
+            CutPoint(c.requested_ms, c.actual_ms)
+            for c in cuts
+        ]
+        self.model._normalize()
+        self.model.dirty = bool(snapshot.get("dirty", False))
+        self._refresh()
 
     def _manual_mutation(self, tool: str, args: dict):
         try:
@@ -2367,6 +2395,7 @@ class MiniCutWindow(QMainWindow):
     def _manual_cut_ready(self, resolved: list):
         self.manual_cut_worker = None
         before = self._snapshot()
+        dirty_before = bool(self.model.dirty)
         added = []
         skipped = []
         try:
@@ -2382,7 +2411,8 @@ class MiniCutWindow(QMainWindow):
                 added.append((cut, item))
         except Exception as exc:
             self.model.cuts = before
-            self.model.dirty = True
+            self.model._normalize()
+            self.model.dirty = dirty_before
             self._refresh()
             self._append_gemini_chat(
                 "system",

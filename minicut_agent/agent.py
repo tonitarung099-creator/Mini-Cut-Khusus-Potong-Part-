@@ -181,12 +181,32 @@ class AgentPlanner:
     def apply(self, plan: dict[str, Any]) -> list[dict[str, Any]]:
         plan = self.validate(plan)
         results = []
-        for step in plan["steps"]:
-            args = dict(step.get("args") or {})
-            if "time_ms" in args:
-                args["time_ms"] = parse_time_ms(args["time_ms"])
-            if "interval_ms" in args and isinstance(args["interval_ms"], str):
-                args["interval_ms"] = parse_time_ms(args["interval_ms"])
-            result = self.registry.execute(step["tool"], args)
-            results.append({"step": step, "result": result})
+        has_mutation = any(step["tool"] in MUTATING_TOOLS for step in plan["steps"])
+        snapshot = None
+        snapshot_fn = getattr(self.registry.host, "tool_transaction_snapshot", None)
+        restore_fn = getattr(self.registry.host, "tool_transaction_restore", None)
+        if has_mutation and callable(snapshot_fn) and callable(restore_fn):
+            snapshot = snapshot_fn()
+
+        try:
+            for step in plan["steps"]:
+                args = dict(step.get("args") or {})
+                if "time_ms" in args:
+                    args["time_ms"] = parse_time_ms(args["time_ms"])
+                if "interval_ms" in args and isinstance(args["interval_ms"], str):
+                    args["interval_ms"] = parse_time_ms(args["interval_ms"])
+                result = self.registry.execute(step["tool"], args)
+                results.append({"step": step, "result": result})
+                if isinstance(result, dict) and result.get("ok") is False:
+                    if result.get("cancelled"):
+                        reason = "dibatalkan pengguna"
+                    else:
+                        reason = str(result.get("error") or "tool mengembalikan status gagal")
+                    raise RuntimeError(
+                        f"Tool '{step['tool']}' tidak selesai: {reason}."
+                    )
+        except Exception:
+            if snapshot is not None and callable(restore_fn):
+                restore_fn(snapshot)
+            raise
         return results

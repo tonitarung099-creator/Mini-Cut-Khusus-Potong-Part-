@@ -1,6 +1,6 @@
 import unittest
 
-from minicut_agent.agent import ToolRegistry
+from minicut_agent.agent import AgentPlanner, ToolRegistry
 from minicut_agent.ui import MiniCutWindow
 
 
@@ -24,6 +24,64 @@ class ToolManifestCoverageTests(unittest.TestCase):
             "set_export_mode", "save_project", "export_all", "undo",
         }
         self.assertTrue(expected.issubset(names))
+
+
+class _TransactionalHost:
+    def __init__(self):
+        self.cuts = ["awal"]
+        self.dirty = False
+        self.calls = []
+
+    def tool_transaction_snapshot(self):
+        return {"cuts": list(self.cuts), "dirty": self.dirty}
+
+    def tool_transaction_restore(self, snapshot):
+        self.cuts = list(snapshot["cuts"])
+        self.dirty = bool(snapshot["dirty"])
+
+    def tool_clear_cuts(self):
+        self.calls.append("clear_cuts")
+        self.cuts = []
+        self.dirty = True
+        return {"ok": True}
+
+    def tool_remove_cut(self, index):
+        self.calls.append("remove_cut")
+        raise RuntimeError("simulasi gagal")
+
+    def tool_save_project(self):
+        self.calls.append("save_project")
+        return {"ok": False, "cancelled": True}
+
+
+class AgentTransactionTests(unittest.TestCase):
+    def test_failed_multistep_plan_rolls_back_timeline(self):
+        host = _TransactionalHost()
+        planner = AgentPlanner(ToolRegistry(host))
+        with self.assertRaises(RuntimeError):
+            planner.apply({
+                "steps": [
+                    {"tool": "clear_cuts", "args": {}},
+                    {"tool": "remove_cut", "args": {"index": 0}},
+                ]
+            })
+        self.assertEqual(host.cuts, ["awal"])
+        self.assertFalse(host.dirty)
+        self.assertEqual(host.calls, ["clear_cuts", "remove_cut"])
+
+    def test_cancelled_tool_stops_following_mutation(self):
+        host = _TransactionalHost()
+        planner = AgentPlanner(ToolRegistry(host))
+        with self.assertRaises(RuntimeError):
+            planner.apply({
+                "steps": [
+                    {"tool": "save_project", "args": {}},
+                    {"tool": "clear_cuts", "args": {}},
+                ]
+            })
+        self.assertEqual(host.calls, ["save_project"])
+        self.assertEqual(host.cuts, ["awal"])
+        self.assertFalse(host.dirty)
 
 
 if __name__ == "__main__":

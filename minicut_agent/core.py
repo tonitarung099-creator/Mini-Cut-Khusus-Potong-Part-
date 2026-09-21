@@ -353,6 +353,22 @@ def load_project_file(path: Path) -> tuple[dict[str, Any], Path | None]:
     source = next((p for p in candidates if p.is_file()), None)
     return data, source
 
+def _export_part_files(output_dir: Path, base_name: str, ext: str) -> list[Path]:
+    """List only this source's generated part files without glob metachar bugs."""
+    if not output_dir.is_dir():
+        return []
+    prefix = f"{base_name}_Part-"
+    return sorted(
+        p for p in output_dir.iterdir()
+        if p.is_file() and p.name.startswith(prefix) and p.name.endswith(ext)
+    )
+
+
+def _clear_export_parts(output_dir: Path, base_name: str, ext: str) -> None:
+    for path in _export_part_files(output_dir, base_name, ext):
+        path.unlink(missing_ok=True)
+
+
 def export_segments(
     ffmpeg: str,
     source: Path,
@@ -366,6 +382,7 @@ def export_segments(
 ) -> tuple[int, int]:
     output_dir.mkdir(parents=True, exist_ok=True)
     ext = source.suffix or ".mp4"
+    _clear_export_parts(output_dir, base_name, ext)
     pattern = output_dir / f"{base_name}_Part-%02d{ext}"
     cmd = [ffmpeg, "-y", "-hide_banner", "-nostats", "-progress", "pipe:1", "-i", str(source),
            "-map", "0", "-c", "copy", "-map_metadata", "0"]
@@ -380,7 +397,12 @@ def export_segments(
     for raw in proc.stdout:
         if cancelled and cancelled():
             proc.terminate()
-            proc.wait(timeout=10)
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+            _clear_export_parts(output_dir, base_name, ext)
             raise InterruptedError("Ekspor dibatalkan.")
         line = raw.strip()
         if line.startswith("out_time_ms="):
@@ -395,9 +417,10 @@ def export_segments(
             log(line)
     rc = proc.wait()
     if rc != 0:
+        _clear_export_parts(output_dir, base_name, ext)
         raise RuntimeError(f"FFmpeg berhenti dengan kode {rc}.")
-    files = sorted(output_dir.glob(f"{base_name}_Part-*{ext}"))
-    return len(files) or len(cut_times_ms) + 1, sum(p.stat().st_size for p in files if p.is_file())
+    files = _export_part_files(output_dir, base_name, ext)
+    return len(files) or len(cut_times_ms) + 1, sum(p.stat().st_size for p in files)
 
 
 
@@ -419,6 +442,7 @@ def export_segments_smartcut(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     ext = source.suffix or ".mp4"
+    _clear_export_parts(output_dir, base_name, ext)
     marks = [0] + sorted(
         set(int(v) for v in cut_times_ms if 0 < int(v) < int(duration_ms))
     ) + [int(duration_ms)]
@@ -427,6 +451,7 @@ def export_segments_smartcut(
 
     for idx, (start_ms, end_ms) in enumerate(ranges, 1):
         if cancelled and cancelled():
+            _clear_export_parts(output_dir, base_name, ext)
             raise InterruptedError("Ekspor dibatalkan.")
 
         out = output_dir / f"{base_name}_Part-{idx:02d}{ext}"
@@ -466,6 +491,8 @@ def export_segments_smartcut(
                         proc.wait(timeout=10)
                     except subprocess.TimeoutExpired:
                         proc.kill()
+                        proc.wait(timeout=5)
+                    _clear_export_parts(output_dir, base_name, ext)
                     raise InterruptedError("Ekspor dibatalkan.")
                 time.sleep(0.12)
             smartcut_log.seek(0)
@@ -476,11 +503,13 @@ def export_segments_smartcut(
 
         if proc.returncode != 0:
             tail = "\n".join(lines[-20:])
+            _clear_export_parts(output_dir, base_name, ext)
             raise RuntimeError(
                 f"SmartCut gagal pada Part-{idx:02d} (kode {proc.returncode})."
                 + (f"\n{tail}" if tail else "")
             )
         if not out.is_file() or out.stat().st_size <= 0:
+            _clear_export_parts(output_dir, base_name, ext)
             raise RuntimeError(f"SmartCut tidak menghasilkan Part-{idx:02d}.")
         created.append(out)
         if progress:

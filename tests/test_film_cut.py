@@ -6,7 +6,7 @@ from unittest.mock import patch
 from minicut_agent.candidates import (
     LocalCandidate, proximity_shortlist, rank_candidates, target_times
 )
-from minicut_agent.core import ProjectModel
+from minicut_agent.core import ProjectModel, _clear_export_parts, _export_part_files
 from minicut_agent.frame_resolver import resolve_requested_frame, resolve_semantic_frame
 from minicut_agent.gemini import _bounded_offset, _needs_deep_check
 from minicut_agent.manual_commands import extract_manual_timestamps, looks_like_manual_cut
@@ -217,6 +217,29 @@ class SemanticCutTests(unittest.TestCase):
             "needs_deep_check": False,
             "needs_review": False,
         }))
+
+
+class ExportCleanupTests(unittest.TestCase):
+    def test_previous_parts_are_removed_without_glob_name_bug(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            base = "film[versi-1]"
+            stale1 = out / f"{base}_Part-01.mp4"
+            stale2 = out / f"{base}_Part-10.mp4"
+            keep = out / "film-lain_Part-01.mp4"
+            stale1.write_bytes(b"old-1")
+            stale2.write_bytes(b"old-2")
+            keep.write_bytes(b"keep")
+
+            self.assertEqual(
+                [p.name for p in _export_part_files(out, base, ".mp4")],
+                [stale1.name, stale2.name],
+            )
+            _clear_export_parts(out, base, ".mp4")
+
+            self.assertFalse(stale1.exists())
+            self.assertFalse(stale2.exists())
+            self.assertTrue(keep.exists())
 
 
 if __name__ == "__main__":
