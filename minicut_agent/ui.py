@@ -708,6 +708,11 @@ class MiniCutWindow(QMainWindow):
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
+        self.gemini_chat_api_label = QLabel("API aktif: — · Model: —")
+        self.gemini_chat_api_label.setObjectName("QuotaValue")
+        self.gemini_chat_api_label.setWordWrap(True)
+        layout.addWidget(self.gemini_chat_api_label)
+
         self.gemini_chat_status = QLabel(
             "Contoh: Potong di menit 15.32, 31.12, 45.10, 59.34"
         )
@@ -932,7 +937,6 @@ class MiniCutWindow(QMainWindow):
         self.gemini_keys_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         layout.addWidget(self.gemini_keys_table, 1)
 
-        actions = QHBoxLayout()
         self.gemini_add_key_btn = QPushButton("+ Tambah API")
         self.gemini_edit_key_btn = QPushButton("Edit")
         self.gemini_remove_key_btn = QPushButton("Hapus")
@@ -943,15 +947,20 @@ class MiniCutWindow(QMainWindow):
         self.gemini_use_ready_btn = QPushButton("Pakai API SIAP")
         self.gemini_cancel_all_btn = QPushButton("Batalkan Cek")
         self.gemini_cancel_all_btn.setEnabled(False)
-        actions.addWidget(self.gemini_add_key_btn)
-        actions.addWidget(self.gemini_edit_key_btn)
-        actions.addWidget(self.gemini_remove_key_btn)
-        actions.addWidget(self.gemini_activate_key_btn)
-        actions.addWidget(self.gemini_test_selected_btn)
-        layout.addLayout(actions)
+
+        key_actions = QHBoxLayout()
+        key_actions.addWidget(self.gemini_add_key_btn)
+        key_actions.addWidget(self.gemini_edit_key_btn)
+        key_actions.addWidget(self.gemini_remove_key_btn)
+        layout.addLayout(key_actions)
+
+        status_actions = QHBoxLayout()
+        status_actions.addWidget(self.gemini_activate_key_btn)
+        status_actions.addWidget(self.gemini_test_selected_btn)
+        status_actions.addWidget(self.gemini_refresh_all_btn)
+        layout.addLayout(status_actions)
 
         batch_actions = QHBoxLayout()
-        batch_actions.addWidget(self.gemini_refresh_all_btn)
         batch_actions.addWidget(self.gemini_test_all_btn)
         batch_actions.addWidget(self.gemini_use_ready_btn)
         batch_actions.addWidget(self.gemini_cancel_all_btn)
@@ -1037,6 +1046,14 @@ class MiniCutWindow(QMainWindow):
             return
         if self.proxy_worker and self.proxy_worker.isRunning():
             self.proxy_worker.cancel()
+            self.proxy_worker.wait(5000)
+            if self.proxy_worker.isRunning():
+                QMessageBox.information(
+                    self,
+                    APP_TITLE,
+                    "Proxy video lama masih dihentikan. Coba buka video lagi beberapa saat.",
+                )
+                return
         self.preview_proxy = None
         self._frame_pts_cache = []
         self._frame_pts_cache_start = 0
@@ -1468,6 +1485,7 @@ class MiniCutWindow(QMainWindow):
         if not active_id:
             quota = "RPM sisa —  ·  TPM sisa —  ·  RPD sisa —"
             detail = "Belum ada API key aktif."
+            chat_api_text = "API aktif: — · Model: " + model
         else:
             try:
                 snap = self.gemini_keys.snapshot(active_id, model)
@@ -1476,6 +1494,9 @@ class MiniCutWindow(QMainWindow):
                     f"RPM sisa {snap['rpm_remaining']}/{snap['rpm_limit']}  ·  "
                     f"TPM sisa {snap['tpm_remaining']:,}/{snap['tpm_limit']:,}  ·  "
                     f"RPD sisa {snap['rpd_remaining']}/{snap['rpd_limit']}"
+                )
+                chat_api_text = (
+                    f"API aktif: {summary.name if summary else 'Gemini API'} · Model: {model}"
                 )
                 detail = (
                     f"{summary.name if summary else 'Gemini API'} · {model} · "
@@ -1486,7 +1507,10 @@ class MiniCutWindow(QMainWindow):
             except Exception as exc:
                 quota = "RPM sisa ?  ·  TPM sisa ?  ·  RPD sisa ?"
                 detail = "Tidak dapat membaca catatan kuota lokal: " + str(exc)
+                chat_api_text = "API aktif: ? · Model: " + model
 
+        if hasattr(self, "gemini_chat_api_label"):
+            self.gemini_chat_api_label.setText(chat_api_text)
         if hasattr(self, "film_quota_label"):
             self.film_quota_label.setText(quota)
             self.film_quota_reset_label.setText(detail)
@@ -2634,6 +2658,20 @@ class MiniCutWindow(QMainWindow):
         if not ffmpeg:
             raise RuntimeError("ffmpeg tidak ditemukan. Pastikan FFmpeg tersedia.")
         mode = str(self.export_mode.currentData() or "smartcut")
+        if mode == "fast" and self.model.cuts:
+            keyframes = set(int(x) for x in self.model.keyframes)
+            has_exact_nonkey = any(
+                int(cut.actual_ms) not in keyframes for cut in self.model.cuts
+            )
+            if has_exact_nonkey:
+                answer = QMessageBox.question(
+                    self,
+                    APP_TITLE,
+                    "Timeline memiliki cut frame-accurate yang bukan keyframe. "
+                    "Fast Copy dapat menggeser titik potong. Tetap gunakan Fast Copy?",
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    return {"ok": False, "cancelled": True}
         smartcut_exe = None
         if mode == "smartcut":
             smartcut_exe = find_tool("MiniCut SmartCut") or find_tool("smartcut")
