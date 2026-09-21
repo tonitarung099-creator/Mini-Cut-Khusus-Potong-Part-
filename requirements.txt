@@ -2,3 +2,4 @@ PySide6>=6.7,<7
 mcp>=1.12,<2
 tzdata>=2025.2
 smartcut==1.7
+python-mpv==1.0.8
