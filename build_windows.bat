@@ -4,11 +4,16 @@ py -3.11 -m pip install --upgrade pip
 py -3.11 -m pip install -r requirements-dev.txt
 if errorlevel 1 exit /b %errorlevel%
 
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\fetch_mpv.ps1"
+if errorlevel 1 exit /b %errorlevel%
+
 py -3.11 -m compileall -q minicut_agent main.py mcp_server.py smartcut_runner.py
 if errorlevel 1 exit /b %errorlevel%
 
-py -3.11 -m PyInstaller --noconfirm --clean --windowed --name "MiniCut Studio Agent" --hidden-import PySide6.QtMultimedia --hidden-import PySide6.QtMultimediaWidgets --collect-data tzdata main.py
+py -3.11 -m PyInstaller --noconfirm --clean --windowed --name "MiniCut Studio Agent" --hidden-import PySide6.QtMultimedia --hidden-import PySide6.QtMultimediaWidgets --hidden-import mpv --collect-data tzdata main.py
 if errorlevel 1 exit /b %errorlevel%
+for /R "mpv-runtime" %%F in (*.dll) do copy /Y "%%F" "dist\MiniCut Studio Agent\"
+copy /Y "THIRD_PARTY_MPV.txt" "dist\MiniCut Studio Agent\THIRD_PARTY_MPV.txt"
 
 py -3.11 -m PyInstaller --noconfirm --clean --console --name "MiniCut MCP" mcp_server.py
 if errorlevel 1 exit /b %errorlevel%
