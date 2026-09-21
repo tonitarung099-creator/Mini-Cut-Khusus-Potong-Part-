@@ -45,23 +45,23 @@ def parse_time_ms(value: Any) -> int:
     if isinstance(value, (int, float)):
         return int(value)
     text = str(value).strip().lower().replace(",", ".")
-    if re.fullmatch(r"[-+]?\\d+(?:\\.\\d+)?\\s*ms", text):
+    if re.fullmatch(r"[-+]?\d+(?:\.\d+)?\s*ms", text):
         return int(float(text[:-2].strip()))
 
     # Gemini/tools may send a natural-language time instead of an integer even
     # though time_ms is preferred. Accept arbitrary hour/minute/second values,
     # compact forms, and the same common aliases as the local chat parser.
-    number = r"\\d+(?:\\.\\d+)?"
+    number = r"\d+(?:\.\d+)?"
     hour_unit = r"(?:jam|hours?|hrs?|hr|h|j)(?![A-Za-z])"
     minute_unit = r"(?:menit|minutes?|mins?|min|mnt|m)(?![A-Za-z])"
     second_unit = r"(?:detik|dtik|dtk|seconds?|secs?|sec|s|d)(?![A-Za-z])"
-    joiner = r"(?:(?:lebih|lewat|plus|dan)|\\+)?"
+    joiner = r"(?:(?:lebih|lewat|plus|dan)|\+)?"
     natural = re.fullmatch(
-        rf"\\s*(?:(?P<hours>{number})\\s*{hour_unit})?"
-        rf"\\s*{joiner}\\s*"
-        rf"(?:(?P<minutes>{number})\\s*{minute_unit})?"
-        rf"\\s*{joiner}\\s*"
-        rf"(?:(?P<seconds>{number})\\s*{second_unit})?\\s*",
+        rf"\s*(?:(?P<hours>{number})\s*{hour_unit})?"
+        rf"\s*{joiner}\s*"
+        rf"(?:(?P<minutes>{number})\s*{minute_unit})?"
+        rf"\s*{joiner}\s*"
+        rf"(?:(?P<seconds>{number})\s*{second_unit})?\s*",
         text,
         flags=re.I,
     )
