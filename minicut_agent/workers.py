@@ -155,6 +155,41 @@ class AgentWorker(QThread):
         except Exception as exc:
             self.failed.emit(str(exc))
 
+class GeminiChatWorker(QThread):
+    ready = Signal(dict)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        text: str,
+        state: dict,
+        locked_timestamps: list[dict],
+        history: list[dict[str, str]],
+    ):
+        super().__init__()
+        self.api_key = api_key
+        self.model = model
+        self.text = text
+        self.state = dict(state)
+        self.locked_timestamps = list(locked_timestamps)
+        self.history = list(history)
+
+    def run(self):
+        try:
+            client = GeminiClient(self.api_key, self.model)
+            result = client.chat_command(
+                self.text,
+                self.state,
+                locked_timestamps=self.locked_timestamps,
+                history=self.history,
+            )
+            self.ready.emit(result)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class GeminiTestWorker(QThread):
     ready = Signal(dict)
     failed = Signal(str)
