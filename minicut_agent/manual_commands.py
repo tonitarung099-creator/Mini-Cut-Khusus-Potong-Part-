@@ -17,10 +17,16 @@ class ManualTimestamp:
 
 
 _CUT_WORDS = ("potong", "cut", "pecah", "split", "titik potong", "belah")
+_NON_ADD_CUT_HINTS = (
+    "hapus", "remove", "delete", "undo", "urungkan", "batalkan",
+    "cek cut", "lihat cut", "berapa cut", "apakah ada cut",
+)
 
 
 def looks_like_manual_cut(text: str) -> bool:
-    low = str(text or "").lower()
+    low = " ".join(str(text or "").lower().split())
+    if any(hint in low for hint in _NON_ADD_CUT_HINTS):
+        return False
     return any(word in low for word in _CUT_WORDS)
 
 
