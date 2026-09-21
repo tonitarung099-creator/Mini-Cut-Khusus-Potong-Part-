@@ -186,10 +186,8 @@ class MiniCutWindow(QMainWindow):
         preview_header.addWidget(self.review_badge)
         pv.addLayout(preview_header)
 
-        self.video = QVideoWidget()
-        self.video.setObjectName("VideoSurface")
+        self.video = self.player.widget
         self.video.setMinimumSize(520, 300)
-        self.player.setVideoOutput(self.video)
         pv.addWidget(self.video, 1)
 
         self.timeline = TimelineSlider()
@@ -212,12 +210,8 @@ class MiniCutWindow(QMainWindow):
             self.speed_combo.addItem(label, rate)
         self.speed_combo.setCurrentIndex(1)
 
-        self.preview_combo = QComboBox()
-        self.preview_combo.addItem("Smooth Proxy", "proxy")
-        self.preview_combo.addItem("Original", "original")
-
-        self.proxy_status_label = QLabel("Proxy: belum dibuat")
-        self.proxy_status_label.setObjectName("MutedLabel")
+        self.player_backend_label = QLabel("Player: menyiapkan mpv…")
+        self.player_backend_label.setObjectName("MutedLabel")
         self.position_label = QLabel("00:00:00.000 / 00:00:00.000")
         self.position_label.setObjectName("Timecode")
 
@@ -227,8 +221,7 @@ class MiniCutWindow(QMainWindow):
         controls.addSpacing(6)
         controls.addWidget(QLabel("Speed"))
         controls.addWidget(self.speed_combo)
-        controls.addWidget(self.preview_combo)
-        controls.addWidget(self.proxy_status_label)
+        controls.addWidget(self.player_backend_label)
         controls.addStretch(1)
         controls.addWidget(self.position_label)
         pv.addLayout(controls)
@@ -272,9 +265,8 @@ class MiniCutWindow(QMainWindow):
         self.back_btn.clicked.connect(lambda: self._step_frame(-1))
         self.forward_btn.clicked.connect(lambda: self._step_frame(1))
         self.speed_combo.currentIndexChanged.connect(self._playback_rate_changed)
-        self.preview_combo.currentIndexChanged.connect(self._preview_mode_changed)
 
-        # Smooth scrubbing tetap dipertahankan.
+        # Direct-master scrubbing. Tidak ada pembuatan proxy.
         self.scrub_timer = QTimer(self)
         self.scrub_timer.setInterval(45)
         self.scrub_timer.timeout.connect(self._flush_scrub)
