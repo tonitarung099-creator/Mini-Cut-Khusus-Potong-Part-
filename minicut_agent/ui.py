@@ -2800,6 +2800,36 @@ class MiniCutWindow(QMainWindow):
     def tool_get_state(self):
         return {"ok": True, "state": self.model.state()}
 
+    def tool_open_video(self):
+        """Open the normal video picker from Gemini chat."""
+        before = str(self.model.source) if self.model.source else None
+        self._choose_video()
+        return {
+            "ok": True,
+            "dialog": "open_video",
+            "previous_source": before,
+            "loading": bool(self.analyze_worker and self.analyze_worker.isRunning()),
+        }
+
+    def tool_open_project(self):
+        """Open the normal MiniCut project picker from Gemini chat."""
+        before = str(self.model.project_path) if self.model.project_path else None
+        self._choose_project()
+        return {
+            "ok": True,
+            "dialog": "open_project",
+            "previous_project": before,
+            "loading": bool(self.analyze_worker and self.analyze_worker.isRunning()),
+        }
+
+    def tool_choose_subtitle(self):
+        """Open the SRT picker used by AI Film Cut."""
+        self._choose_srt()
+        return {
+            "ok": bool(self.srt_path and self.srt_path.is_file()),
+            "subtitle": str(self.srt_path) if self.srt_path else None,
+        }
+
     def tool_seek(self, time_ms):
         ms = self.model.clamp(parse_time_ms(time_ms))
         self.player.set_position(ms)
@@ -2813,6 +2843,35 @@ class MiniCutWindow(QMainWindow):
     def tool_pause(self):
         self.player.pause()
         return {"ok": True}
+
+    def tool_set_playback_rate(self, rate):
+        rate = float(rate)
+        if not 0.25 <= rate <= 4.0:
+            raise ValueError("Kecepatan playback harus antara 0.25x sampai 4x.")
+        index = self.speed_combo.findData(rate)
+        if index < 0:
+            self.speed_combo.addItem(f"{rate:g}x", rate)
+            index = self.speed_combo.findData(rate)
+        self.speed_combo.setCurrentIndex(index)
+        # currentIndexChanged normally applies the rate; call explicitly as a
+        # deterministic fallback for headless/tool-driven use.
+        self._playback_rate_changed()
+        return {"ok": True, "rate": self._current_playback_rate()}
+
+    def tool_step_frame(self, direction):
+        direction = int(direction)
+        if direction not in (-1, 1):
+            raise ValueError("direction harus -1 (mundur) atau 1 (maju).")
+        if not self.model.source:
+            raise ValueError("Belum ada video.")
+        before = int(self.model.playhead_ms)
+        self._step_frame(direction)
+        return {
+            "ok": True,
+            "direction": direction,
+            "before_ms": before,
+            "playhead_ms": int(self.model.playhead_ms),
+        }
 
     def tool_add_cut(self, time_ms):
         cut = self.model.add_cut(parse_time_ms(time_ms))
@@ -2838,6 +2897,46 @@ class MiniCutWindow(QMainWindow):
         self.model.divide_interval(parse_time_ms(interval_ms) if isinstance(interval_ms, str) else int(interval_ms))
         self._refresh()
         return {"ok": True, "parts": len(self.model.cuts) + 1}
+
+    def tool_start_film_cut(self):
+        if self.film_cut_worker and self.film_cut_worker.isRunning():
+            return {"ok": True, "started": False, "already_running": True}
+        self._start_film_cut()
+        running = bool(self.film_cut_worker and self.film_cut_worker.isRunning())
+        return {"ok": running, "started": running}
+
+    def tool_cancel_film_cut(self):
+        running = bool(self.film_cut_worker and self.film_cut_worker.isRunning())
+        self._cancel_film_cut()
+        return {"ok": True, "cancel_requested": running}
+
+    def tool_apply_film_cut(self):
+        before = len(self.model.cuts)
+        self._apply_film_cut()
+        after = len(self.model.cuts)
+        return {
+            "ok": after > 0 or bool(self.film_cut_results),
+            "cuts_before": before,
+            "cuts_after": after,
+            "parts": len(self.model.cuts) + 1 if self.model.source else 0,
+        }
+
+    def tool_preview_film_cut(self, row):
+        row = int(row)
+        if row < 1 or row > self.film_table.rowCount():
+            raise ValueError("Baris hasil AI Film Cut di luar rentang.")
+        self._preview_film_cut_row(row - 1, 1)
+        return {"ok": True, "row": row, "playhead_ms": int(self.model.playhead_ms)}
+
+    def tool_set_export_mode(self, mode):
+        mode = str(mode or "").strip().lower()
+        if mode not in {"smartcut", "fast"}:
+            raise ValueError("Mode ekspor harus 'smartcut' atau 'fast'.")
+        index = self.export_mode.findData(mode)
+        if index < 0:
+            raise RuntimeError("Mode ekspor tidak tersedia di UI.")
+        self.export_mode.setCurrentIndex(index)
+        return {"ok": True, "mode": str(self.export_mode.currentData())}
 
     def tool_save_project(self):
         if not self.model.source:
