@@ -2884,9 +2884,9 @@ class MiniCutWindow(QMainWindow):
             self.film_cancel_btn.setEnabled(False)
             self.film_status_label.setText("Membatalkan setelah langkah aktif selesai…")
 
-    def _apply_film_cut(self):
+    def _apply_film_cut(self) -> dict:
         if not self.film_cut_results:
-            return
+            return {"ok": False, "error": "Belum ada hasil AI Film Cut untuk diterapkan."}
         review_count = sum(
             1 for x in self.film_cut_results
             if int(x.get("selected_time_ms") or 0) > 0
@@ -2902,7 +2902,7 @@ class MiniCutWindow(QMainWindow):
                 f"Ada {review_count} titik bertanda REVIEW. Tetap terapkan semua?",
             )
             if answer != QMessageBox.StandardButton.Yes:
-                return
+                return {"ok": False, "cancelled": True}
         if self.model.cuts:
             answer = QMessageBox.question(
                 self,
@@ -2910,7 +2910,7 @@ class MiniCutWindow(QMainWindow):
                 "Timeline sudah mempunyai cut. Ganti dengan hasil AI Film Cut?",
             )
             if answer != QMessageBox.StandardButton.Yes:
-                return
+                return {"ok": False, "cancelled": True}
 
         before = self._snapshot()
         exact = []
@@ -2921,7 +2921,7 @@ class MiniCutWindow(QMainWindow):
         exact.sort(key=lambda x: x.actual_ms)
         if not exact:
             QMessageBox.warning(self, APP_TITLE, "Tidak ada titik potong valid untuk diterapkan.")
-            return
+            return {"ok": False, "error": "Tidak ada titik potong AI yang valid."}
         self.undo_stack.append(before)
         self.model.cuts = exact
         self.model._normalize()
@@ -2932,6 +2932,7 @@ class MiniCutWindow(QMainWindow):
             f"{len(exact)} titik AI diterapkan ke timeline. Timestamp dipertahankan presisi."
         )
         self._log(f"AI Film Cut diterapkan: {len(exact)} cut presisi.")
+        return {"ok": True, "applied_cuts": len(exact)}
 
     # ---------- tool API ----------
     def tool_get_state(self):
@@ -3063,14 +3064,15 @@ class MiniCutWindow(QMainWindow):
 
     def tool_apply_film_cut(self):
         before = len(self.model.cuts)
-        self._apply_film_cut()
+        result = dict(self._apply_film_cut() or {})
         after = len(self.model.cuts)
-        return {
-            "ok": after > 0 or bool(self.film_cut_results),
+        result.update({
             "cuts_before": before,
             "cuts_after": after,
             "parts": len(self.model.cuts) + 1 if self.model.source else 0,
-        }
+        })
+        result.setdefault("ok", False)
+        return result
 
     def tool_preview_film_cut(self, row):
         row = int(row)
