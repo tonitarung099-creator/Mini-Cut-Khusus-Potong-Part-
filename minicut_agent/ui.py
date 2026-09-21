@@ -701,8 +701,11 @@ class MiniCutWindow(QMainWindow):
         self.parts_table = QTableWidget(0, 4)
         self.parts_table.setHorizontalHeaderLabels(["Part", "Mulai", "Selesai", "Durasi"])
         self.parts_table.horizontalHeader().setStretchLastSection(True)
+        self.parts_table.verticalHeader().setVisible(False)
+        self.parts_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.parts_table.setAlternatingRowColors(True)
         self.parts_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.parts_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.parts_table.setMinimumHeight(120)
         layout.addWidget(self.parts_table, 1)
 
@@ -743,6 +746,8 @@ class MiniCutWindow(QMainWindow):
     def _agent_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
         self.agent_state = QLabel()
         self.agent_state.setWordWrap(True)
         layout.addWidget(self.agent_state)
@@ -797,6 +802,8 @@ class MiniCutWindow(QMainWindow):
     def _gemini_chat_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
 
         intro = QLabel(
             "Percakapan Gemini untuk perintah edit manual. Jika kamu menulis timestamp eksplisit "
@@ -868,6 +875,8 @@ class MiniCutWindow(QMainWindow):
     def _film_cut_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
 
         intro = QLabel(
             "Target tetap pada grid 15, 30, 45, 60 menit, dst. Contact sheet + SRT dipakai untuk "
@@ -972,13 +981,22 @@ class MiniCutWindow(QMainWindow):
         layout.addWidget(self.film_status_label)
         layout.addWidget(self.film_usage_label)
 
-        self.film_table = QTableWidget(0, 7)
+        self.film_table = QTableWidget(0, 5)
         self.film_table.setHorizontalHeaderLabels(
-            ["Target", "Batas AI", "Frame final", "Intent", "Confidence", "Status", "Alasan"]
+            ["Target", "Cut final", "Conf.", "Status", "Alasan"]
         )
-        self.film_table.horizontalHeader().setStretchLastSection(True)
+        self.film_table.verticalHeader().setVisible(False)
+        self.film_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.film_table.setAlternatingRowColors(True)
         self.film_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.film_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.film_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        film_header = self.film_table.horizontalHeader()
+        film_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        film_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        film_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        film_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        film_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.film_table, 1)
 
         self.srt_btn.clicked.connect(self._choose_srt)
@@ -996,6 +1014,8 @@ class MiniCutWindow(QMainWindow):
     def _gemini_keys_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
 
         intro = QLabel(
             "Simpan hingga 100 Gemini API key. Key disimpan terenkripsi dengan Windows DPAPI. "
@@ -1025,14 +1045,22 @@ class MiniCutWindow(QMainWindow):
         manager_quota_layout.addWidget(self.manager_quota_reset_label)
         layout.addWidget(manager_quota_card)
 
-        self.gemini_keys_table = QTableWidget(0, 8)
+        self.gemini_keys_table = QTableWidget(0, 6)
         self.gemini_keys_table.setHorizontalHeaderLabels([
-            "Aktif", "Nama", "Project", "API key", "Status",
-            "Sisa RPM", "Sisa TPM", "Sisa RPD"
+            "Aktif", "API", "Status", "RPM", "TPM", "RPD"
         ])
-        self.gemini_keys_table.horizontalHeader().setStretchLastSection(True)
+        self.gemini_keys_table.verticalHeader().setVisible(False)
+        self.gemini_keys_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.gemini_keys_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.gemini_keys_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.gemini_keys_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        api_header = self.gemini_keys_table.horizontalHeader()
+        api_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        api_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        api_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        api_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        api_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        api_header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self.gemini_keys_table, 1)
 
         self.gemini_add_key_btn = QPushButton("+ Tambah API")
@@ -1093,6 +1121,8 @@ class MiniCutWindow(QMainWindow):
     def _log_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         layout.addWidget(self.log)
