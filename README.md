@@ -13,7 +13,8 @@ Aplikasi desktop Windows untuk membagi film/video menjadi beberapa part dengan b
 - **Exact-frame resolver** — keputusan AI dikunci ke PTS frame asli dari master.
 - **SmartCut Frame Accurate** — default export; meminimalkan re-encode di sekitar titik potong.
 - **Fast Copy** — opsi ekspor cepat berbasis keyframe.
-- **Preview Proxy lokal** — proxy H.264 720p untuk playback/scrubbing lebih ringan.
+- **Preview master-direct** — tidak membuat proxy. Backend utama mpv/libmpv dengan hardware decoding; Qt Multimedia menjadi fallback.
+- **Scrubbing dua tahap** — saat drag memakai seek cepat, saat dilepas dikunci ke posisi exact pada master asli.
 - **Playback 0.5x–4x** dan tombol maju/mundur 1 frame berbasis PTS master.
 - **Gemini API Manager** — hingga 100 API key, disimpan lokal menggunakan Windows DPAPI.
 - **Cache/resume AI Film Cut**.
@@ -47,7 +48,8 @@ Target 15 menit adalah patokan, bukan batas wajib. Perpindahan scene yang natura
 
 - `main.py` — entry point aplikasi.
 - `minicut_agent/ui.py` — UI PySide6.
-- `minicut_agent/core.py` — proyek, FFmpeg, proxy, export.
+- `minicut_agent/core.py` — proyek, FFmpeg, dan export.
+- `minicut_agent/preview_player.py` — playback master-direct mpv/libmpv + fallback Qt.
 - `minicut_agent/candidates.py` — pencarian/ranking kandidat lokal.
 - `minicut_agent/gemini.py` — Gemini verifier visual-first.
 - `minicut_agent/frame_resolver.py` — penguncian ke PTS frame asli.
@@ -86,4 +88,5 @@ Gemini API key tidak dimasukkan ke source code atau cache proyek. Penyimpanan lo
 
 ## Third-party
 
-SmartCut digunakan sebagai engine frame-accurate cutting. Lihat `THIRD_PARTY_SMARTCUT.txt` untuk notice lisensi MIT.
+SmartCut digunakan sebagai engine frame-accurate cutting. Lihat `THIRD_PARTY_SMARTCUT.txt`.
+Preview memakai python-mpv + libmpv runtime terpisah. Lihat `THIRD_PARTY_MPV.txt` untuk sumber dan notice lisensi.
