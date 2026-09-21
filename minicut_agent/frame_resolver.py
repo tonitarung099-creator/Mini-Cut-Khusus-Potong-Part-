@@ -44,6 +44,54 @@ def probe_frame_timestamps(
     return sorted(set(frames))
 
 
+
+def resolve_requested_frame(
+    source: Path,
+    ffprobe: str,
+    requested_ms: int,
+    radius_ms: int = 1500,
+) -> dict[str, Any]:
+    """Snap an explicit user timestamp to the nearest REAL master frame PTS.
+
+    Unlike semantic scene resolution, this never searches for a better scene and
+    never uses subtitle safety. The user's requested time is authoritative.
+    """
+    requested_ms = max(0, int(requested_ms))
+    radius_ms = max(250, int(radius_ms))
+    frames = probe_frame_timestamps(
+        source,
+        ffprobe,
+        max(0, requested_ms - radius_ms),
+        requested_ms + radius_ms,
+    )
+    if not frames and radius_ms < 4000:
+        frames = probe_frame_timestamps(
+            source,
+            ffprobe,
+            max(0, requested_ms - 4000),
+            requested_ms + 4000,
+        )
+    if not frames:
+        raise RuntimeError(
+            "PTS frame nyata tidak ditemukan di sekitar timestamp manual."
+        )
+    chosen = min(
+        frames,
+        key=lambda f: (
+            abs(f - requested_ms),
+            0 if f <= requested_ms else 1,
+        ),
+    )
+    return {
+        "requested_ms": requested_ms,
+        "requested_time": format_ms(requested_ms),
+        "time_ms": chosen,
+        "time": format_ms(chosen),
+        "frame_verified": True,
+        "frame_delta_ms": chosen - requested_ms,
+        "reason": "Timestamp manual dikunci ke PTS frame master nyata terdekat.",
+    }
+
 def resolve_semantic_frame(
     source: Path,
     ffprobe: str,
