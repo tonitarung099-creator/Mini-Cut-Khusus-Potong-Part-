@@ -45,7 +45,7 @@ jobs:
           } | Select-Object -First 1
           if (-not $dll) { throw "libmpv DLL not found" }
           $env:PATH = "$($dll.DirectoryName);$env:PATH"
-          python -c "import mpv; p=mpv.MPV(vo='null', ao='null'); print('libmpv-ok', p.client_api_version); p.terminate()"
+          python -c "import mpv; p=mpv.MPV(vo='null', ao='null'); print('libmpv-ok', mpv.MPV_VERSION); p.terminate()"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Compile and import checks
