@@ -37,6 +37,17 @@ jobs:
         run: |
           ./scripts/fetch_mpv.ps1
 
+      - name: Smoke test libmpv runtime
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem "mpv-runtime" -Recurse -File -Filter "*.dll" | Where-Object {
+            $_.Name -match "^(libmpv|mpv)-?2?\.dll$"
+          } | Select-Object -First 1
+          if (-not $dll) { throw "libmpv DLL not found" }
+          $env:PATH = "$($dll.DirectoryName);$env:PATH"
+          python -c "import mpv; p=mpv.MPV(vo='null', ao='null'); print('libmpv-ok', p.client_api_version); p.terminate()"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Compile and import checks
         shell: pwsh
         run: |
