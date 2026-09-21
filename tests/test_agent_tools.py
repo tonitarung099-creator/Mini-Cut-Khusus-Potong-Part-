@@ -1,6 +1,8 @@
 import unittest
+from unittest.mock import patch
 
 from minicut_agent.agent import AgentPlanner, ToolRegistry
+from minicut_agent.core import CutPoint, ProjectModel
 from minicut_agent.ui import MiniCutWindow
 
 
@@ -100,6 +102,70 @@ class AgentTransactionTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(host.cuts, ["awal"])
         self.assertFalse(host.dirty)
+
+
+class _UndoHost:
+    _snapshot = MiniCutWindow._snapshot
+    _restore_snapshot = MiniCutWindow._restore_snapshot
+    tool_undo = MiniCutWindow.tool_undo
+
+    def __init__(self):
+        self.model = ProjectModel()
+        self.model.duration_ms = 120_000
+        self.undo_stack = []
+
+    def _refresh(self):
+        pass
+
+
+class UndoStateTests(unittest.TestCase):
+    def test_undo_restores_previous_dirty_state(self):
+        host = _UndoHost()
+        host.model.cuts = [CutPoint(30_000, 30_000)]
+        host.model.dirty = False
+        before = host._snapshot()
+
+        host.model.cuts.append(CutPoint(60_000, 60_000))
+        host.model.dirty = True
+        host.undo_stack.append(before)
+
+        result = host.tool_undo()
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["dirty"])
+        self.assertFalse(host.model.dirty)
+        self.assertEqual(
+            [cut.actual_ms for cut in host.model.cuts],
+            [30_000],
+        )
+
+
+class FilmCutApplyResultTests(unittest.TestCase):
+    def test_declining_replace_does_not_report_success(self):
+        class Host:
+            pass
+
+        host = Host()
+        host.film_cut_results = [{
+            "selected_time_ms": 60_000,
+            "confidence": 0.9,
+            "needs_review": False,
+        }]
+        host.model = ProjectModel()
+        host.model.duration_ms = 120_000
+        host.model.cuts = [CutPoint(30_000, 30_000)]
+
+        with patch(
+            "minicut_agent.ui.QMessageBox.question",
+            return_value=__import__("minicut_agent.ui", fromlist=["QMessageBox"]).QMessageBox.StandardButton.No,
+        ):
+            result = MiniCutWindow._apply_film_cut(host)
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["cancelled"])
+        self.assertEqual(
+            [cut.actual_ms for cut in host.model.cuts],
+            [30_000],
+        )
 
 
 if __name__ == "__main__":
