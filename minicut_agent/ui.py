@@ -583,13 +583,17 @@ class MiniCutWindow(QMainWindow):
             return
         ms = self.model.clamp(int(self._scrub_pending_ms))
         self._scrub_pending_ms = None
-        self.player.set_position(ms)
+        # Selama drag gunakan keyframe seek yang jauh lebih ringan pada master asli.
+        self.player.set_position(ms, exact=False)
         self.model.playhead_ms = ms
 
     def _scrub_finished(self):
-        self._scrub_pending_ms = int(self.timeline.value())
-        self._flush_scrub()
+        final_ms = self.model.clamp(int(self.timeline.value()))
+        self._scrub_pending_ms = None
         self.scrub_timer.stop()
+        # Setelah mouse dilepas, kunci ke waktu exact.
+        self.player.set_position(final_ms, exact=True)
+        self.model.playhead_ms = final_ms
         if self._scrub_resume_after:
             self.player.play()
         self._scrub_resume_after = False
