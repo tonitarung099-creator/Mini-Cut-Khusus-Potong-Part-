@@ -3,6 +3,7 @@ from __future__ import annotations
 import bisect
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -44,10 +45,35 @@ def parse_time_ms(value: Any) -> int:
     if isinstance(value, (int, float)):
         return int(value)
     text = str(value).strip().lower().replace(",", ".")
-    if text.endswith("ms"):
+    if re.fullmatch(r"[-+]?\\d+(?:\\.\\d+)?\\s*ms", text):
         return int(float(text[:-2].strip()))
-    if text.endswith("s") and ":" not in text:
-        return int(float(text[:-1]) * 1000)
+
+    # Gemini/tools may send a natural-language time instead of an integer even
+    # though time_ms is preferred. Accept arbitrary hour/minute/second values,
+    # compact forms, and the same common aliases as the local chat parser.
+    number = r"\\d+(?:\\.\\d+)?"
+    hour_unit = r"(?:jam|hours?|hrs?|hr|h|j)(?![A-Za-z])"
+    minute_unit = r"(?:menit|minutes?|mins?|min|mnt|m)(?![A-Za-z])"
+    second_unit = r"(?:detik|dtik|dtk|seconds?|secs?|sec|s|d)(?![A-Za-z])"
+    joiner = r"(?:(?:lebih|lewat|plus|dan)|\\+)?"
+    natural = re.fullmatch(
+        rf"\\s*(?:(?P<hours>{number})\\s*{hour_unit})?"
+        rf"\\s*{joiner}\\s*"
+        rf"(?:(?P<minutes>{number})\\s*{minute_unit})?"
+        rf"\\s*{joiner}\\s*"
+        rf"(?:(?P<seconds>{number})\\s*{second_unit})?\\s*",
+        text,
+        flags=re.I,
+    )
+    if natural and any(
+        natural.group(name) is not None
+        for name in ("hours", "minutes", "seconds")
+    ):
+        hours = float(natural.group("hours") or 0)
+        minutes = float(natural.group("minutes") or 0)
+        seconds = float(natural.group("seconds") or 0)
+        return round((hours * 3600 + minutes * 60 + seconds) * 1000)
+
     parts = text.split(":")
     try:
         if len(parts) == 3:
@@ -56,6 +82,7 @@ def parse_time_ms(value: Any) -> int:
         if len(parts) == 2:
             m, s = int(parts[0]), float(parts[1])
             return int((m * 60 + s) * 1000)
+        # Keep legacy behavior: a bare numeric string means seconds.
         return int(float(text) * 1000)
     except ValueError as exc:
         raise ValueError(f"Format waktu tidak dikenali: {value}") from exc

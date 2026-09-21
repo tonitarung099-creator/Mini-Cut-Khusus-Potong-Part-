@@ -15,22 +15,22 @@ class ToolRegistry:
 
     def manifest(self) -> dict[str, Any]:
         return {
-            "version": 1,
+            "version": 2,
             "tools": [
                 {"name": "get_state", "args": {}, "description": "Baca status proyek dan timeline."},
                 {"name": "open_video", "args": {}, "description": "Buka dialog untuk memilih video sumber."},
                 {"name": "open_project", "args": {}, "description": "Buka dialog untuk memilih proyek MiniCut."},
                 {"name": "choose_subtitle", "args": {}, "description": "Buka dialog untuk memilih subtitle SRT."},
-                {"name": "seek", "args": {"time_ms": "int|string"}, "description": "Pindahkan playhead."},
+                {"name": "seek", "args": {"time_ms": "int|string"}, "description": "Pindahkan playhead ke timestamp arbitrer; tidak dibatasi kelipatan waktu tertentu."},
                 {"name": "play", "args": {}, "description": "Putar video."},
                 {"name": "pause", "args": {}, "description": "Jeda video."},
                 {"name": "set_playback_rate", "args": {"rate": "float 0.25-4.0"}, "description": "Atur kecepatan preview."},
                 {"name": "step_frame", "args": {"direction": "-1|1"}, "description": "Mundur/maju satu frame master."},
-                {"name": "add_cut", "args": {"time_ms": "int|string"}, "description": "Tambah batas part legacy berbasis keyframe; chat exact-time memakai manual_frame_cut."},
+                {"name": "add_cut", "args": {"time_ms": "int|string"}, "description": "Tambah batas part di timestamp arbitrer; chat exact-time memakai manual_frame_cut agar frame-accurate."},
                 {"name": "remove_cut", "args": {"index": "int"}, "description": "Hapus cut berdasarkan index 0-based."},
                 {"name": "clear_cuts", "args": {}, "description": "Hapus semua cut."},
                 {"name": "divide_equal", "args": {"parts": "int"}, "description": "Bagi film menjadi N part sama panjang."},
-                {"name": "divide_interval", "args": {"interval_ms": "int|string"}, "description": "Buat cut berkala."},
+                {"name": "divide_interval", "args": {"interval_ms": "int|string"}, "description": "Buat cut berkala dengan interval arbitrer, bukan hanya kelipatan 5 detik."},
                 {"name": "start_film_cut", "args": {}, "description": "Mulai AI Film Cut memakai setting, SRT, model, dan API aktif."},
                 {"name": "cancel_film_cut", "args": {}, "description": "Batalkan AI Film Cut yang sedang berjalan."},
                 {"name": "apply_film_cut", "args": {}, "description": "Terapkan hasil AI Film Cut yang sudah selesai ke timeline."},

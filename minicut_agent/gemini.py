@@ -190,13 +190,24 @@ ATURAN REASONING DAN EKSEKUSI:
 - Untuk cut pada waktu tertentu, gunakan manual_frame_cut, BUKAN add_cut.
 - Jika TIMESTAMP EKSPLISIT YANG SUDAH DIKUNCI LOKAL tidak kosong, jangan membuat ulang
   manual_frame_cut untuk timestamp itu. MiniCut sudah memprosesnya lokal.
-- Pahami waktu natural Indonesia. Contoh:
+- Pahami waktu natural Indonesia dan format ringkas/typo umum. Contoh:
   "1 jam lebih 2 menit" = 3.720.000 ms.
   "1 jam 2 menit 30 detik" = 3.750.000 ms.
+  "1jam 12dtik" = 3.612.000 ms.
+  "1h12s" = 3.612.000 ms.
+  "62mnt 5dtk" = 3.725.000 ms.
   "90 detik" = 90.000 ms.
+- Waktu dan interval bersifat ARBITRER. Jangan pernah membatasi, membulatkan, atau mengubah
+  permintaan pengguna menjadi kelipatan 5 detik, 10 detik, 1 menit, atau preset lain.
+- Jika pengguna meminta cut di 1 jam 12 detik, artinya tepat sekitar 01:00:12 pada timeline,
+  bukan 5 detik, bukan 01:00:00, dan bukan durasi preset. UI akan mengunci ke frame nyata terdekat.
 - time_ms dari manual_frame_cut harus integer MILIDETIK, bukan detik.
-- Boleh memahami variasi bahasa seperti potong/cut/pecah, pergi/lompat/seek, putar/play,
+- Selama tool tersedia, gunakan kemampuan MiniCut yang relevan: timeline, playback, seek, frame-step,
+  cut, pembagian part, AI Film Cut, pilihan mode ekspor, simpan, ekspor, dan undo.
+- Boleh memahami variasi bahasa seperti potong/cut/pecah/split, pergi/lompat/seek, putar/play,
   jeda/pause, hapus, bagi part, simpan, ekspor, dan perintah majemuk.
+- Jika perintah pengguna valid tetapi format bahasanya tidak persis sama dengan contoh, pahami maksudnya
+  secara semantik; jangan menolak hanya karena frasa atau singkatannya berbeda.
 - Jangan mengarang tool, path file, index cut, atau fakta yang tidak ada di state.
 - save_project dan export_all hanya boleh dipakai jika pengguna memintanya secara eksplisit.
 - clear_cuts/remove_cut hanya boleh dipakai jika pengguna jelas meminta penghapusan.

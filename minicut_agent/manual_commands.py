@@ -23,6 +23,16 @@ _NON_ADD_CUT_HINTS = (
 )
 
 
+# Time-unit aliases accepted by the deterministic local parser. These are
+# intentionally tolerant because chat commands are often typed compactly or
+# with small typos (for example "1jam12dtik"). The negative lookahead keeps
+# one-letter aliases from consuming the prefix of an unknown word.
+_HOUR_UNIT = r"(?:jam|hours?|hrs?|hr|h|j)(?![A-Za-z])"
+_MINUTE_UNIT = r"(?:menit|minutes?|mins?|min|mnt|m)(?![A-Za-z])"
+_SECOND_UNIT = r"(?:detik|dtik|dtk|seconds?|secs?|sec|s|d)(?![A-Za-z])"
+_JOINER = r"(?:(?:lebih|lewat|plus|dan)\\s*|\\+\\s*)?"
+
+
 def looks_like_manual_cut(text: str) -> bool:
     low = " ".join(str(text or "").lower().split())
     if any(hint in low for hint in _NON_ADD_CUT_HINTS):
@@ -45,6 +55,8 @@ def extract_manual_timestamps(text: str) -> list[ManualTimestamp]:
       1 jam lebih 2 menit           -> 1h02m
       1 jam lewat 2 menit 3 detik   -> 1h02m03s
       59.34.500                     -> 59m34.500s
+      1jam 12dtik / 1h12s           -> 1h00m12s
+      62mnt 5dtk                     -> 62m05s
 
     The parser intentionally keeps explicit user time values deterministic.
     Gemini can still understand broader natural-language commands when no local
@@ -89,19 +101,22 @@ def extract_manual_timestamps(text: str) -> list[ManualTimestamp]:
         ms = ((minute * 60 + sec) * 1000) + milli
         add_match(m.start(), m.end(), m.group(0), ms)
 
-    # Natural Indonesian with hours. Connectors such as "lebih", "lewat",
-    # "plus", "+", or "dan" are accepted so phrases like
-    # "1 jam lebih 2 menit" are read as 01:02:00.
+    # Natural Indonesian/English with hours. Compact forms and common typing
+    # variants are accepted, e.g. "1jam12dtik", "1h12s", or "1j 2m 3d".
+    # If an hour-only match is immediately followed by another number that we
+    # do not understand, skip the partial match and let Gemini reason about the
+    # whole phrase instead of silently cutting at the wrong hour boundary.
     for m in re.finditer(
-        r"(?<!\d)(\d{1,3}(?:[.,]\d+)?)\s*jam"
-        r"(?:\s*(?:(?:lebih|lewat|plus|dan)\s*|\+\s*)?"
-        r"(\d{1,3}(?:[.,]\d+)?)\s*menit)?"
-        r"(?:\s*(?:(?:lebih|lewat|plus|dan)\s*|\+\s*)?"
-        r"(\d{1,3}(?:[.,]\d+)?)\s*detik)?",
+        rf"(?<!\\d)(\\d{{1,3}}(?:[.,]\\d+)?)\\s*{_HOUR_UNIT}"
+        rf"(?:\\s*{_JOINER}(\\d{{1,3}}(?:[.,]\\d+)?)\\s*{_MINUTE_UNIT})?"
+        rf"(?:\\s*{_JOINER}(\\d{{1,3}}(?:[.,]\\d+)?)\\s*{_SECOND_UNIT})?",
         raw_text,
         flags=re.I,
     ):
         if overlaps(m.start(), m.end()):
+            continue
+        tail = raw_text[m.end():]
+        if m.group(2) is None and m.group(3) is None and re.match(r"\\s*\\d", tail):
             continue
         hours = _number(m.group(1))
         minutes = _number(m.group(2))
@@ -109,26 +124,28 @@ def extract_manual_timestamps(text: str) -> list[ManualTimestamp]:
         ms = round((hours * 3600 + minutes * 60 + seconds) * 1000)
         add_match(m.start(), m.end(), m.group(0), ms)
 
-    # Natural Indonesian "15 menit 32 detik".
+    # Minutes with an optional seconds component. Accept compact aliases too,
+    # while refusing a suspicious partial match followed by an unknown number.
     for m in re.finditer(
-        r"(?<!\d)(\d{1,4}(?:[.,]\d+)?)\s*menit"
-        r"(?:\s*(\d{1,2}(?:[.,]\d+)?)\s*detik)?",
+        rf"(?<!\\d)(\\d{{1,4}}(?:[.,]\\d+)?)\\s*{_MINUTE_UNIT}"
+        rf"(?:\\s*{_JOINER}(\\d{{1,3}}(?:[.,]\\d+)?)\\s*{_SECOND_UNIT})?",
         raw_text,
         flags=re.I,
     ):
         if overlaps(m.start(), m.end()):
             continue
+        tail = raw_text[m.end():]
+        if m.group(2) is None and re.match(r"\\s*\\d", tail):
+            continue
         minute = _number(m.group(1))
         sec = _number(m.group(2))
-        if sec >= 60:
-            continue
         ms = round((minute * 60 + sec) * 1000)
         add_match(m.start(), m.end(), m.group(0), ms)
 
-    # Natural Indonesian "90 detik" is useful for short clips and seek/cut
-    # commands. It is parsed after larger units so it never duplicates them.
+    # Seconds, including common abbreviations/typos such as dtk/dtik/sec/s.
+    # Parsed after larger units so the same timestamp is never duplicated.
     for m in re.finditer(
-        r"(?<!\d)(\d{1,6}(?:[.,]\d+)?)\s*detik\b",
+        rf"(?<!\\d)(\\d{{1,6}}(?:[.,]\\d+)?)\\s*{_SECOND_UNIT}",
         raw_text,
         flags=re.I,
     ):
