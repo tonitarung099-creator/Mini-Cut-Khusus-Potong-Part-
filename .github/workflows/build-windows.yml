@@ -118,6 +118,12 @@ jobs:
             throw "MiniCut packaged mpv backend unavailable; exit code $($p.ExitCode)"
           }
 
+      - name: Smoke test compact UI layout
+        shell: pwsh
+        run: |
+          & "dist/MiniCut Studio Agent/MiniCut Studio Agent.exe" --self-test-layout
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Package ZIP
         shell: pwsh
         run: |

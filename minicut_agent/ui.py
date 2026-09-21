@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QKeySequence, QPainter, QPalette, QPen, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-    QFormLayout, QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
+    QFormLayout, QGridLayout, QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
     QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox, QSplitter,
     QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget
 )
@@ -140,13 +140,13 @@ class MiniCutWindow(QMainWindow):
         topbar = QWidget()
         topbar.setObjectName("TopBar")
         toolbar = QHBoxLayout(topbar)
-        toolbar.setContentsMargins(14, 9, 14, 9)
-        toolbar.setSpacing(8)
+        toolbar.setContentsMargins(12, 7, 12, 7)
+        toolbar.setSpacing(6)
 
         brand = QLabel("MINI CUT")
         brand.setObjectName("Brand")
         toolbar.addWidget(brand)
-        toolbar.addSpacing(10)
+        toolbar.addSpacing(6)
 
         self.open_video_btn = QPushButton("＋ Buka Video")
         self.open_project_btn = QPushButton("Buka Proyek")
@@ -154,7 +154,7 @@ class MiniCutWindow(QMainWindow):
         self.export_btn = QPushButton("Ekspor Semua Part")
         self.export_btn.setObjectName("PrimaryButton")
         self.export_mode = QComboBox()
-        self.export_mode.setMinimumWidth(185)
+        self.export_mode.setMinimumWidth(165)
         self.export_mode.addItem("SmartCut · Frame Accurate", "smartcut")
         self.export_mode.addItem("Fast Copy · Keyframe", "fast")
 
@@ -175,8 +175,8 @@ class MiniCutWindow(QMainWindow):
         preview = QWidget()
         preview.setObjectName("PreviewPanel")
         pv = QVBoxLayout(preview)
-        pv.setContentsMargins(12, 12, 10, 10)
-        pv.setSpacing(8)
+        pv.setContentsMargins(10, 10, 8, 8)
+        pv.setSpacing(6)
 
         preview_header = QHBoxLayout()
         preview_title = QLabel("PREVIEW")
@@ -189,7 +189,7 @@ class MiniCutWindow(QMainWindow):
         pv.addLayout(preview_header)
 
         self.video = self.player.widget
-        self.video.setMinimumSize(520, 300)
+        self.video.setMinimumSize(500, 280)
         pv.addWidget(self.video, 1)
 
         self.timeline = TimelineSlider()
@@ -245,20 +245,20 @@ class MiniCutWindow(QMainWindow):
             index = self.tabs.addTab(page, title)
             self.tabs.setTabToolTip(index, tip)
         splitter.addWidget(self.tabs)
-        splitter.setSizes([820, 460])
+        splitter.setSizes([800, 480])
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
 
         footer = QWidget()
         footer.setObjectName("Footer")
         bottom = QHBoxLayout(footer)
-        bottom.setContentsMargins(12, 6, 12, 6)
+        bottom.setContentsMargins(10, 5, 10, 5)
         self.status = QLabel("Buka video untuk mulai.")
         self.status.setObjectName("StatusLabel")
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
-        self.progress.setMaximumWidth(280)
+        self.progress.setMaximumWidth(240)
         bottom.addWidget(self.status, 1)
         bottom.addWidget(self.progress)
         outer.addWidget(footer)
@@ -327,7 +327,7 @@ class MiniCutWindow(QMainWindow):
         return panel
 
     def _apply_modern_theme(self):
-        self.setMinimumSize(1180, 720)
+        self.setMinimumSize(1120, 680)
 
         # Palette global menjaga teks tetap terang pada widget/popup native Windows
         # yang kadang tidak sepenuhnya mengikuti QSS (terutama QComboBox popup).
@@ -356,7 +356,7 @@ class MiniCutWindow(QMainWindow):
                 background: #0f1117;
                 color: #e8eaf0;
                 font-family: "Segoe UI";
-                font-size: 10pt;
+                font-size: 9pt;
             }
             QWidget, QLabel, QCheckBox, QRadioButton, QGroupBox {
                 color: #e7e9ef;
@@ -367,7 +367,7 @@ class MiniCutWindow(QMainWindow):
             }
             QLabel#Brand {
                 color: #ffffff;
-                font-size: 15pt;
+                font-size: 12pt;
                 font-weight: 800;
                 letter-spacing: 1px;
             }
@@ -376,7 +376,7 @@ class MiniCutWindow(QMainWindow):
             }
             QLabel#SectionTitle {
                 color: #aeb4c3;
-                font-size: 9pt;
+                font-size: 8pt;
                 font-weight: 700;
                 letter-spacing: 1px;
             }
@@ -386,12 +386,13 @@ class MiniCutWindow(QMainWindow):
                 border: 1px solid #4c3d83;
                 border-radius: 9px;
                 padding: 3px 8px;
-                font-size: 8pt;
+                font-size: 7.5pt;
                 font-weight: 700;
             }
             QLabel#Timecode {
                 color: #d9dce6;
                 font-family: "Consolas";
+                font-size: 8.5pt;
                 font-weight: 600;
             }
             QWidget#QuotaCard {
@@ -402,7 +403,7 @@ class MiniCutWindow(QMainWindow):
             QLabel#QuotaValue {
                 color: #f2f3f8;
                 font-family: "Consolas";
-                font-size: 10pt;
+                font-size: 9pt;
                 font-weight: 700;
             }
             QLabel#SessionUsage {
@@ -434,7 +435,8 @@ class MiniCutWindow(QMainWindow):
             QTabBar::tab {
                 background: #151820;
                 color: #aab0bf;
-                padding: 10px 9px;
+                padding: 7px 7px;
+                font-size: 8.5pt;
                 border: 0px;
                 border-bottom: 2px solid transparent;
             }
@@ -446,8 +448,9 @@ class MiniCutWindow(QMainWindow):
                 background: #222733;
                 color: #e7e9ef;
                 border: 1px solid #303645;
-                border-radius: 7px;
-                padding: 7px 11px;
+                border-radius: 6px;
+                padding: 5px 8px;
+                font-size: 8.5pt;
             }
             QPushButton:hover {
                 background: #2a3040;
@@ -472,7 +475,7 @@ class MiniCutWindow(QMainWindow):
             }
             QPushButton#PlayButton {
                 min-width: 38px;
-                font-size: 12pt;
+                font-size: 9pt;
                 background: #f1f3f8;
                 color: #101219;
                 border: 0px;
@@ -481,13 +484,14 @@ class MiniCutWindow(QMainWindow):
                 background: #1b1f29;
                 color: #e7e9ef;
                 border: 1px solid #303645;
-                border-radius: 7px;
-                padding: 6px 8px;
+                border-radius: 6px;
+                padding: 4px 6px;
+                font-size: 8.5pt;
                 selection-background-color: #7c5cff;
             }
             QComboBox::drop-down {
                 border: 0px;
-                width: 24px;
+                width: 20px;
             }
             QComboBox QAbstractItemView {
                 background: #1b1f29;
@@ -500,8 +504,8 @@ class MiniCutWindow(QMainWindow):
             QComboBox QAbstractItemView::item {
                 color: #f3f5fa;
                 background: #1b1f29;
-                min-height: 28px;
-                padding: 4px 8px;
+                min-height: 23px;
+                padding: 3px 6px;
             }
             QComboBox QAbstractItemView::item:selected {
                 color: #ffffff;
@@ -533,6 +537,7 @@ class MiniCutWindow(QMainWindow):
             }
             QTableWidget {
                 background: #14171e;
+                font-size: 8.5pt;
                 alternate-background-color: #181c25;
                 color: #e8ebf2;
                 border: 1px solid #2a2f3b;
@@ -546,7 +551,8 @@ class MiniCutWindow(QMainWindow):
                 border: 0px;
                 border-right: 1px solid #292e39;
                 border-bottom: 1px solid #292e39;
-                padding: 6px;
+                padding: 4px;
+                font-size: 8pt;
                 font-weight: 700;
             }
             QSlider::groove:horizontal {
@@ -571,7 +577,8 @@ class MiniCutWindow(QMainWindow):
                 border-radius: 5px;
                 text-align: center;
                 color: #dfe2ea;
-                min-height: 15px;
+                min-height: 13px;
+                font-size: 8pt;
             }
             QProgressBar::chunk {
                 background: #7c5cff;
@@ -583,6 +590,7 @@ class MiniCutWindow(QMainWindow):
             }
             QLabel#StatusLabel {
                 color: #9ca3b3;
+                font-size: 8pt;
             }
             QSplitter::handle {
                 background: #242934;
@@ -747,13 +755,15 @@ class MiniCutWindow(QMainWindow):
     def _agent_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
         self.agent_state = QLabel()
         self.agent_state.setWordWrap(True)
         layout.addWidget(self.agent_state)
 
         form = QFormLayout()
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.agent_mode = QComboBox()
         self.agent_mode.addItems(["Lokal · tanpa API", "OpenAI-compatible API"])
         self.endpoint_edit = QLineEdit("http://127.0.0.1:1234/v1")
@@ -772,7 +782,7 @@ class MiniCutWindow(QMainWindow):
             "tiap 10 menit\n"
             "tambah cut di 00:12:30 dan 00:25:00"
         )
-        self.agent_input.setMaximumHeight(125)
+        self.agent_input.setMaximumHeight(105)
         layout.addWidget(self.agent_input)
 
         buttons = QHBoxLayout()
@@ -803,8 +813,8 @@ class MiniCutWindow(QMainWindow):
     def _gemini_chat_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
 
         intro = QLabel(
             "Gemini di tab ini adalah command agent MiniCut: ia memahami bahasa natural, reasoning "
@@ -834,7 +844,7 @@ class MiniCutWindow(QMainWindow):
         layout.addWidget(self.gemini_chat_history, 1)
 
         self.gemini_chat_input = QPlainTextEdit()
-        self.gemini_chat_input.setMaximumHeight(105)
+        self.gemini_chat_input.setMaximumHeight(88)
         self.gemini_chat_input.setPlaceholderText(
             "Tulis perintah seperti manusia… (Ctrl+Enter untuk kirim)\n"
             "Contoh: cut 1 jam lebih 2 menit, atau bagi jadi 8 part lalu lompat ke 30 menit"
@@ -877,8 +887,8 @@ class MiniCutWindow(QMainWindow):
     def _film_cut_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
 
         intro = QLabel(
             "Target tetap pada grid 15, 30, 45, 60 menit, dst. Contact sheet + SRT dipakai untuk "
@@ -890,6 +900,8 @@ class MiniCutWindow(QMainWindow):
         layout.addWidget(intro)
 
         form = QFormLayout()
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         key_row = QWidget()
         key_layout = QHBoxLayout(key_row)
         key_layout.setContentsMargins(0, 0, 0, 0)
@@ -959,7 +971,9 @@ class MiniCutWindow(QMainWindow):
         quota_layout.addWidget(self.film_quota_reset_label)
         layout.addWidget(quota_card)
 
-        actions = QHBoxLayout()
+        actions = QGridLayout()
+        actions.setHorizontalSpacing(6)
+        actions.setVerticalSpacing(6)
         self.gemini_test_btn = QPushButton("Tes API")
         self.film_analyze_btn = QPushButton("Analisis Film")
         self.film_analyze_btn.setObjectName("PrimaryButton")
@@ -967,10 +981,12 @@ class MiniCutWindow(QMainWindow):
         self.film_apply_btn = QPushButton("Terapkan Semua Cut")
         self.film_cancel_btn.setEnabled(False)
         self.film_apply_btn.setEnabled(False)
-        actions.addWidget(self.gemini_test_btn)
-        actions.addWidget(self.film_analyze_btn)
-        actions.addWidget(self.film_cancel_btn)
-        actions.addWidget(self.film_apply_btn)
+        actions.addWidget(self.gemini_test_btn, 0, 0)
+        actions.addWidget(self.film_analyze_btn, 0, 1)
+        actions.addWidget(self.film_cancel_btn, 1, 0)
+        actions.addWidget(self.film_apply_btn, 1, 1)
+        actions.setColumnStretch(0, 1)
+        actions.setColumnStretch(1, 1)
         layout.addLayout(actions)
 
         self.film_status_label = QLabel("Siap. Buka video, pilih SRT, lalu pilih Gemini API aktif.")
@@ -1030,8 +1046,8 @@ class MiniCutWindow(QMainWindow):
     def _gemini_keys_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
 
         intro = QLabel(
             "Simpan hingga 100 Gemini API key. Key disimpan terenkripsi dengan Windows DPAPI. "
@@ -1138,8 +1154,8 @@ class MiniCutWindow(QMainWindow):
     def _log_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         layout.addWidget(self.log)
@@ -3076,6 +3092,63 @@ class MiniCutWindow(QMainWindow):
         self.model.dirty = True
         self._refresh()
         return {"ok": True, "parts": len(self.model.cuts) + 1}
+
+    def ui_layout_issues(self) -> list[str]:
+        """Return obvious overlap/clipping problems at the current window size.
+
+        This is intentionally conservative and checks interactive controls only.
+        It is used by the packaged Windows smoke test so UI regressions fail CI.
+        """
+        issues: list[str] = []
+        original_tab = self.tabs.currentIndex() if hasattr(self, "tabs") else -1
+
+        def rect_in_window(widget):
+            top_left = widget.mapTo(self, widget.rect().topLeft())
+            return widget.rect().translated(top_left)
+
+        def check_visible_controls(scope_name: str, root: QWidget):
+            controls = [
+                w for w in root.findChildren((QPushButton, QComboBox, QLineEdit, QSpinBox))
+                if w.isVisible() and w.width() > 0 and w.height() > 0
+            ]
+            for widget in controls:
+                if isinstance(widget, QPushButton):
+                    need = widget.sizeHint().width()
+                    if widget.width() + 4 < need:
+                        issues.append(
+                            f"{scope_name}: tombol '{widget.text()}' terlalu sempit "
+                            f"({widget.width()} < {need})"
+                        )
+            for i, first in enumerate(controls):
+                r1 = rect_in_window(first)
+                for second in controls[i + 1:]:
+                    # Parent/child controls are not peers and may legitimately
+                    # share global area; only compare independent controls.
+                    if first.isAncestorOf(second) or second.isAncestorOf(first):
+                        continue
+                    r2 = rect_in_window(second)
+                    inter = r1.intersected(r2)
+                    if inter.width() > 3 and inter.height() > 3:
+                        issues.append(
+                            f"{scope_name}: kontrol tumpang tindih "
+                            f"'{getattr(first, 'text', lambda: first.objectName())()}' dan "
+                            f"'{getattr(second, 'text', lambda: second.objectName())()}'"
+                        )
+
+        QApplication.processEvents()
+        check_visible_controls("workspace", self.centralWidget())
+        if hasattr(self, "tabs"):
+            for index in range(self.tabs.count()):
+                self.tabs.setCurrentIndex(index)
+                QApplication.processEvents()
+                check_visible_controls(
+                    f"tab {self.tabs.tabText(index)}",
+                    self.tabs.widget(index),
+                )
+            if original_tab >= 0:
+                self.tabs.setCurrentIndex(original_tab)
+                QApplication.processEvents()
+        return sorted(set(issues))
 
     # ---------- export ----------
     def _export_progress(self, pct: int, text: str):

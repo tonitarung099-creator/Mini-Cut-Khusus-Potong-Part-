@@ -16,6 +16,19 @@ def main():
                 print("player-backend-failed: " + win.player.backend_name)
                 app.exit(3)
         QTimer.singleShot(1800, verify_player_backend)
+    elif "--self-test-layout" in sys.argv:
+        def verify_layout():
+            win.resize(1120, 680)
+            app.processEvents()
+            issues = win.ui_layout_issues()
+            if issues:
+                for issue in issues:
+                    print("layout-failed: " + issue)
+                app.exit(4)
+            else:
+                print("layout-ok: no overlapping or clipped interactive controls")
+                app.exit(0)
+        QTimer.singleShot(1600, verify_layout)
     elif "--self-test" in sys.argv:
         QTimer.singleShot(1200, app.quit)
     raise SystemExit(app.exec())
