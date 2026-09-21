@@ -1213,6 +1213,15 @@ class MiniCutWindow(QMainWindow):
             return False
 
     def _begin_load(self, source: Path, project_data: dict | None = None, project_path: Path | None = None) -> bool:
+        if self.model.dirty:
+            answer = QMessageBox.question(
+                self,
+                APP_TITLE,
+                "Perubahan cut belum disimpan. Tetap buka video/proyek lain?",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
+
         if (
             (self.manual_cut_worker and self.manual_cut_worker.isRunning())
             or (self.gemini_chat_worker and self.gemini_chat_worker.isRunning())
