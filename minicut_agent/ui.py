@@ -565,9 +565,7 @@ class MiniCutWindow(QMainWindow):
         self.shortcut_save.activated.connect(lambda: self.tool_save_project())
 
     def _scrub_started(self):
-        self._scrub_resume_after = (
-            self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
-        )
+        self._scrub_resume_after = self.player.is_playing()
         if self._scrub_resume_after:
             self.player.pause()
         self._scrub_pending_ms = int(self.timeline.value())
@@ -585,7 +583,7 @@ class MiniCutWindow(QMainWindow):
             return
         ms = self.model.clamp(int(self._scrub_pending_ms))
         self._scrub_pending_ms = None
-        self.player.setPosition(ms)
+        self.player.set_position(ms)
         self.model.playhead_ms = ms
 
     def _scrub_finished(self):
@@ -1056,22 +1054,11 @@ class MiniCutWindow(QMainWindow):
                 "Tunggu proses edit/AI yang sedang berjalan sebelum membuka video atau proyek lain.",
             )
             return
-        if self.proxy_worker and self.proxy_worker.isRunning():
-            self.proxy_worker.cancel()
-            self.proxy_worker.wait(5000)
-            if self.proxy_worker.isRunning():
-                QMessageBox.information(
-                    self,
-                    APP_TITLE,
-                    "Proxy video lama masih dihentikan. Coba buka video lagi beberapa saat.",
-                )
-                return
-        self.preview_proxy = None
         self._frame_pts_cache = []
         self._frame_pts_cache_start = 0
         self._frame_pts_cache_end = 0
-        if hasattr(self, "proxy_status_label"):
-            self.proxy_status_label.setText("Proxy: menunggu video")
+        if hasattr(self, "player_backend_label"):
+            self.player_backend_label.setText("Player: " + self.player.backend_name)
         ffprobe = find_tool("ffprobe")
         if not ffprobe:
             QMessageBox.critical(self, APP_TITLE, "ffprobe tidak ditemukan. Pastikan FFmpeg tersedia.")
@@ -1119,7 +1106,7 @@ class MiniCutWindow(QMainWindow):
         self.status.setText(f"Siap · {source.name} · {len(keyframes)} keyframe")
         self._log(f"Video dibuka: {source}")
         self._refresh()
-        self._start_preview_proxy(source, metadata)
+        self._player_backend_changed(self.player.backend_name)
 
 
     # ---------- master-direct playback ----------
@@ -1219,14 +1206,13 @@ class MiniCutWindow(QMainWindow):
             self.timeline.setRange(0, int(ms))
             self._refresh()
 
-    def _playback_changed(self, state):
-        playing = state == QMediaPlayer.PlaybackState.PlayingState
-        self.play_btn.setText("⏸ Pause" if playing else "▶ Play")
+    def _playback_changed(self, playing: bool):
+        self.play_btn.setText("⏸ Pause" if bool(playing) else "▶ Play")
 
     def _toggle_play(self):
         if not self.model.source:
             return
-        if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+        if self.player.is_playing():
             self.player.pause()
         else:
             self.player.play()
@@ -2485,7 +2471,7 @@ class MiniCutWindow(QMainWindow):
 
     def tool_seek(self, time_ms):
         ms = self.model.clamp(parse_time_ms(time_ms))
-        self.player.setPosition(ms)
+        self.player.set_position(ms)
         self.model.playhead_ms = ms
         return {"ok": True, "playhead_ms": ms}
 
