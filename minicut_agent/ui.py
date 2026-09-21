@@ -1122,7 +1122,7 @@ class MiniCutWindow(QMainWindow):
         self._start_preview_proxy(source, metadata)
 
 
-    # ---------- preview proxy / smooth playback ----------
+    # ---------- master-direct playback ----------
     def _current_playback_rate(self) -> float:
         if not hasattr(self, "speed_combo"):
             return 1.0
@@ -1133,162 +1133,42 @@ class MiniCutWindow(QMainWindow):
 
     def _switch_player_media(self, path: Path, resume: bool | None = None):
         path = Path(path).resolve()
-        if self._player_media_path == path:
-            self.player.setPlaybackRate(self._current_playback_rate())
-            return
         if resume is None:
-            resume = self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
-        self._pending_player_position = int(self.model.playhead_ms)
-        self._pending_player_resume = bool(resume)
-        self.player.pause()
+            resume = self.player.is_playing()
         self._player_media_path = path
-        self.player.setSource(QUrl.fromLocalFile(str(path)))
-        self.player.setPlaybackRate(self._current_playback_rate())
-        # Some Windows backends load quickly enough that the status signal can
-        # arrive before the event loop returns. This fallback is harmless.
-        QTimer.singleShot(250, self._apply_pending_player_state)
-
-    def _apply_pending_player_state(self):
-        if self._pending_player_position is None:
-            return
-        pos = int(self._pending_player_position)
-        resume = bool(self._pending_player_resume)
-        self._pending_player_position = None
-        self._pending_player_resume = False
-        self.player.setPosition(pos)
-        self.player.setPlaybackRate(self._current_playback_rate())
-        if resume:
-            self.player.play()
-
-    def _media_status_changed(self, status):
-        if status in (
-            QMediaPlayer.MediaStatus.LoadedMedia,
-            QMediaPlayer.MediaStatus.BufferedMedia,
-        ):
-            self._apply_pending_player_state()
-
-    def _start_preview_proxy(self, source: Path, metadata: dict):
-        ffmpeg = find_tool("ffmpeg")
-        if not ffmpeg:
-            self.proxy_status_label.setText("Proxy: FFmpeg tidak ada · Original")
-            return
-        try:
-            path = preview_proxy_path(source)
-        except Exception as exc:
-            self.proxy_status_label.setText("Proxy: cache gagal · Original")
-            self._log("Proxy cache: " + str(exc))
-            return
-
-        if path.is_file() and path.stat().st_size > 64 * 1024:
-            self.preview_proxy = path
-            self.proxy_status_label.setText("Proxy: siap")
-            if self.preview_combo.currentData() == "proxy":
-                self._switch_player_media(path)
-            return
-
-        self.preview_proxy = None
-        self.proxy_status_label.setText("Proxy: membuat 0%")
-        self.proxy_worker = ProxyWorker(
-            ffmpeg=ffmpeg,
-            source=source.resolve(),
-            output=path,
-            duration_ms=self.model.duration_ms,
-            source_height=int(metadata.get("height") or 0),
-            fps=float(metadata.get("fps") or 0.0),
+        self.player.load(
+            path,
+            position_ms=int(self.model.playhead_ms),
+            autoplay=bool(resume),
         )
-        worker = self.proxy_worker
-        worker.progress_changed.connect(lambda p, t, w=worker: self._proxy_progress(w, p, t))
-        worker.log_line.connect(lambda s, w=worker: self._proxy_log(w, s))
-        worker.ready.connect(lambda p, w=worker: self._proxy_ready(w, p))
-        worker.failed.connect(lambda m, w=worker: self._proxy_failed(w, m))
-        worker.cancelled.connect(lambda w=worker: self._proxy_cancelled(w))
-        worker.start()
+        self.player.set_rate(self._current_playback_rate())
 
-    def _proxy_progress(self, worker: ProxyWorker, pct: int, _text: str):
-        if self.proxy_worker is worker:
-            self.proxy_status_label.setText(f"Proxy: membuat {pct}%")
-            if hasattr(self, "review_badge"):
-                self.review_badge.setText(f"PROXY {pct}%")
-
-    def _proxy_log(self, worker: ProxyWorker, text: str):
-        if self.proxy_worker is worker:
-            self._log("Proxy: " + text)
-
-    def _proxy_ready(self, worker: ProxyWorker, path: str):
-        if self.proxy_worker is not worker:
-            return
-        self.proxy_worker = None
-        if not self.model.source or worker.source.resolve() != self.model.source.resolve():
-            return
-        self.preview_proxy = Path(path).resolve()
-        self.proxy_status_label.setText("Proxy: siap · 480p")
+    def _player_backend_changed(self, name: str):
+        if hasattr(self, "player_backend_label"):
+            self.player_backend_label.setText("Player: " + str(name))
         if hasattr(self, "review_badge"):
-            self.review_badge.setText("SMOOTH REVIEW")
-        self._log("Proxy preview 480p siap: " + str(self.preview_proxy))
-        if self.preview_combo.currentData() == "proxy":
-            self._switch_player_media(self.preview_proxy)
-
-    def _proxy_failed(self, worker: ProxyWorker, message: str):
-        if self.proxy_worker is not worker:
-            return
-        self.proxy_worker = None
-        self.preview_proxy = None
-        self.proxy_status_label.setText("Proxy: gagal · Original")
-        if hasattr(self, "review_badge"):
-            self.review_badge.setText("ORIGINAL REVIEW")
-        self._log("Proxy preview gagal, tetap memakai original: " + message)
-
-    def _proxy_cancelled(self, worker: ProxyWorker):
-        if self.proxy_worker is not worker:
-            return
-        self.proxy_worker = None
-        if self.model.source:
-            self.proxy_status_label.setText("Proxy: dibatalkan · Original")
-
-    def _preview_mode_changed(self, *_):
-        if not self.model.source:
-            return
-        if self.preview_combo.currentData() == "original":
-            self._switch_player_media(self.model.source)
-            self.proxy_status_label.setText(
-                "Proxy: siap · tidak dipakai" if self.preview_proxy else "Proxy: Original"
+            self.review_badge.setText(
+                "MPV · MASTER DIRECT"
+                if self.player.using_mpv
+                else "QT FALLBACK · MASTER"
             )
-            return
-        if self.preview_proxy and self.preview_proxy.is_file():
-            self.proxy_status_label.setText("Proxy: siap")
-            self._switch_player_media(self.preview_proxy)
-        else:
-            self.proxy_status_label.setText(
-                "Proxy: sedang dibuat · sementara Original"
-                if self.proxy_worker and self.proxy_worker.isRunning()
-                else "Proxy: belum siap · Original"
-            )
-            self._switch_player_media(self.model.source)
+        self._log("Playback backend: " + str(name))
 
     def _playback_rate_changed(self, *_):
         rate = self._current_playback_rate()
 
-        # High-speed review is visual-first. Muting 3x/4x avoids expensive
-        # audio time-stretching on Windows multimedia backends.
+        # At very high review speed audio time-stretching is expensive.
+        # Video still comes from the original master; no proxy is created.
         fast_visual = rate >= 3.0
-        self.audio.setMuted(fast_visual)
+        self.player.set_muted(fast_visual)
+        self.player.set_rate(rate)
         if hasattr(self, "review_badge"):
+            base = "MPV · MASTER DIRECT" if self.player.using_mpv else "QT FALLBACK · MASTER"
             self.review_badge.setText(
-                "SMOOTH REVIEW · AUDIO OFF" if fast_visual else "SMOOTH REVIEW"
+                base + (" · AUDIO OFF" if fast_visual else "")
             )
-
-        # Prefer the lightweight proxy for accelerated review unless user
-        # explicitly selected Original.
-        if (
-            rate > 1.0
-            and self.preview_combo.currentData() == "proxy"
-            and self.preview_proxy
-            and self.preview_proxy.is_file()
-        ):
-            self._switch_player_media(self.preview_proxy)
-        self.player.setPlaybackRate(rate)
         self._log(
-            f"Playback speed: {rate:g}x"
+            f"Playback speed: {rate:g}x · master direct"
             + (" · audio preview off" if fast_visual else "")
         )
 
