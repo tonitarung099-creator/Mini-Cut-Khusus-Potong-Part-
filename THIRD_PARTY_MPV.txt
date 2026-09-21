@@ -1,0 +1,19 @@
+MiniCut Studio Agent - Third Party Notice: mpv/libmpv
+
+This application can use libmpv as an embedded video playback backend.
+
+Python binding:
+- python-mpv 1.0.8
+- Project: https://github.com/jaseg/python-mpv
+- License: GPL-2.0-or-later OR LGPL-2.1-or-later, depending on the libmpv build used.
+
+Bundled Windows runtime:
+- libmpv from zhongfly/mpv-winbuild
+- Pinned release: 2026-09-20-e76a35ec95
+- Asset: mpv-dev-lgpl-x86_64-20260920-git-e76a35ec95.7z
+- Build is published as an LGPL-oriented libmpv build.
+- Project/source: https://github.com/zhongfly/mpv-winbuild
+- Upstream mpv source: https://github.com/mpv-player/mpv
+
+The bundled libmpv runtime is kept separate from MiniCut application code and is loaded dynamically.
+See the upstream projects for complete license texts, source code, build scripts, and notices.
