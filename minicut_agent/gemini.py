@@ -138,44 +138,79 @@ class GeminiClient:
         state: dict[str, Any],
         locked_timestamps: list[dict[str, Any]] | None = None,
         history: list[dict[str, str]] | None = None,
+        tool_manifest: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Human-style Gemini chat for MiniCut.
+        """Reasoning command agent for the MiniCut Chat tab.
 
-        Explicit timestamps are supplied as LOCKED data by the local parser.
-        Gemini may explain them but must never rewrite or move them.
+        Local explicit timestamps stay authoritative. For broader natural
+        language, Gemini may reason about the current project and propose one or
+        more MiniCut tool actions. The UI validates every action before running
+        it.
         """
         locked = list(locked_timestamps or [])
-        history = list(history or [])[-8:]
+        history = list(history or [])[-12:]
+        manifest = dict(tool_manifest or {})
         project = {
             "source": state.get("source"),
+            "duration_ms": state.get("duration_ms"),
             "duration": state.get("duration"),
+            "playhead_ms": state.get("playhead_ms"),
+            "playhead": state.get("playhead"),
             "fps": state.get("fps"),
             "parts": state.get("parts"),
             "cuts": state.get("cuts"),
         }
         prompt = f"""
-Kamu adalah Gemini Chat di aplikasi MiniCut Studio.
-Berkomunikasilah natural dalam Bahasa Indonesia, singkat dan jelas.
+Kamu adalah Gemini Command Agent di aplikasi MiniCut Studio.
+Berkomunikasilah natural dalam Bahasa Indonesia, singkat, jelas, dan fokus ke maksud pengguna.
 
-KONDISI PROYEK:
+Kamu TIDAK terbatas pada perintah cut manual. Pahami perintah seperti manusia lalu pilih aksi
+MiniCut yang tepat dari tool yang tersedia. Kamu boleh menyusun beberapa aksi berurutan untuk
+perintah majemuk.
+
+KONDISI PROYEK SAAT INI:
 {json.dumps(project, ensure_ascii=False)}
+
+TOOL MINICUT YANG TERSEDIA:
+{json.dumps(manifest, ensure_ascii=False)}
 
 TIMESTAMP EKSPLISIT YANG SUDAH DIKUNCI LOKAL:
 {json.dumps(locked, ensure_ascii=False)}
 
-ATURAN:
-- Jika daftar timestamp terkunci tidak kosong dan pengguna meminta potong/cut/split,
-  jangan mengubah angkanya, jangan mencari scene lain, dan jangan membuat timestamp tambahan.
-- Jelaskan bahwa MiniCut akan menempelkan timestamp tersebut ke frame master nyata terdekat.
-- Snap frame hanya beberapa milidetik sesuai PTS sumber, bukan menggeser ke detik/scene lain.
-- Jika pengguna hanya mengobrol atau bertanya, jawab secara natural.
-- Jangan mengklaim tindakan sudah berhasil bila aplikasi belum memberi hasil eksekusi.
-- Jangan meminta API key di chat; gunakan API aktif aplikasi.
+TOOL KHUSUS CHAT:
+- manual_frame_cut(time_ms:int, raw?:str)
+  Gunakan untuk cut tepat pada waktu yang diminta pengguna. UI akan mengunci waktu itu ke PTS
+  frame master nyata terdekat, bukan ke keyframe.
 
-Kembalikan HANYA JSON:
+ATURAN REASONING DAN EKSEKUSI:
+- Pikirkan kebutuhan pengguna secara internal sebelum memilih aksi. Jangan tampilkan chain-of-thought.
+- Jika pengguna hanya bertanya/berdiskusi, jawab natural dan actions harus [].
+- Jika pengguna meminta tindakan, isi actions hanya dengan tool nyata yang tersedia.
+- Untuk cut pada waktu tertentu, gunakan manual_frame_cut, BUKAN add_cut.
+- Jika TIMESTAMP EKSPLISIT YANG SUDAH DIKUNCI LOKAL tidak kosong, jangan membuat ulang
+  manual_frame_cut untuk timestamp itu. MiniCut sudah memprosesnya lokal.
+- Pahami waktu natural Indonesia. Contoh:
+  "1 jam lebih 2 menit" = 3.720.000 ms.
+  "1 jam 2 menit 30 detik" = 3.750.000 ms.
+  "90 detik" = 90.000 ms.
+- time_ms dari manual_frame_cut harus integer MILIDETIK, bukan detik.
+- Boleh memahami variasi bahasa seperti potong/cut/pecah, pergi/lompat/seek, putar/play,
+  jeda/pause, hapus, bagi part, simpan, ekspor, dan perintah majemuk.
+- Jangan mengarang tool, path file, index cut, atau fakta yang tidak ada di state.
+- save_project dan export_all hanya boleh dipakai jika pengguna memintanya secara eksplisit.
+- clear_cuts/remove_cut hanya boleh dipakai jika pengguna jelas meminta penghapusan.
+- Jangan mengklaim tindakan sudah berhasil; balasan menjelaskan apa yang akan dilakukan.
+  Aplikasi akan memberi hasil eksekusi setelah JSON ini diproses.
+- Jangan meminta API key di chat; gunakan API aktif aplikasi.
+- Maksimal 12 actions agar satu pesan tidak membuat loop tak terkendali.
+
+Kembalikan HANYA JSON valid:
 {{
   "reply": "jawaban natural untuk pengguna",
-  "intent": "manual_cut" atau "chat"
+  "intent": "act" atau "chat",
+  "actions": [
+    {{"tool": "nama_tool", "args": {{}}}}
+  ]
 }}
 """.strip()
 
@@ -184,7 +219,7 @@ Kembalikan HANYA JSON:
             role = "model" if item.get("role") == "assistant" else "user"
             contents.append({
                 "role": role,
-                "parts": [{"text": str(item.get("text") or "")[:4000]}],
+                "parts": [{"text": str(item.get("text") or "")[:5000]}],
             })
         contents.append({
             "role": "user",
@@ -193,23 +228,44 @@ Kembalikan HANYA JSON:
         payload = {
             "contents": contents,
             "generationConfig": {
-                "temperature": 0.25,
-                "maxOutputTokens": 500,
+                "temperature": 0.2,
+                "maxOutputTokens": 1200,
                 "responseMimeType": "application/json",
             },
         }
-        # Chat harus responsif. Gagal cepat lebih baik daripada menahan UI lama;
-        # timestamp manual tetap diproses lokal tanpa menunggu Gemini.
-        data = self._post(payload, timeout=30, max_attempts=1)
+        data = self._post(payload, timeout=45, max_attempts=1)
         raw = _response_text(data)
         try:
             result = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise RuntimeError("Gemini Chat tidak mengembalikan JSON valid.") from exc
-        result["reply"] = str(result.get("reply") or "").strip()
-        result["intent"] = str(result.get("intent") or "chat").strip().lower()
-        result["usage"] = self.usage.__dict__.copy()
-        result["model"] = self.model
+
+        reply = str(result.get("reply") or "").strip()
+        intent = str(result.get("intent") or "chat").strip().lower()
+        if intent not in {"act", "chat"}:
+            intent = "act" if result.get("actions") else "chat"
+
+        raw_actions = result.get("actions")
+        actions: list[dict[str, Any]] = []
+        if isinstance(raw_actions, list):
+            for item in raw_actions[:12]:
+                if not isinstance(item, dict):
+                    continue
+                tool = str(item.get("tool") or "").strip()
+                if not tool:
+                    continue
+                args = item.get("args")
+                if not isinstance(args, dict):
+                    args = {}
+                actions.append({"tool": tool, "args": args})
+
+        result = {
+            "reply": reply,
+            "intent": intent,
+            "actions": actions,
+            "usage": self.usage.__dict__.copy(),
+            "model": self.model,
+        }
         return result
 
     def analyze_scene_window(
