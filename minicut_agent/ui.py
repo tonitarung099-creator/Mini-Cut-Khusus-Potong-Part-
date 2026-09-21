@@ -695,6 +695,64 @@ class MiniCutWindow(QMainWindow):
         return w
 
 
+    def _gemini_chat_tab(self):
+        w = QWidget()
+        layout = QVBoxLayout(w)
+
+        intro = QLabel(
+            "Percakapan Gemini untuk perintah edit manual. Jika kamu menulis timestamp eksplisit "
+            "seperti 15.32 atau 31:12, angkanya dikunci lokal dan tidak boleh diubah Gemini. "
+            "MiniCut hanya menempelkan waktu itu ke frame master nyata terdekat."
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        self.gemini_chat_status = QLabel(
+            "Contoh: Potong di menit 15.32, 31.12, 45.10, 59.34"
+        )
+        self.gemini_chat_status.setObjectName("MutedLabel")
+        self.gemini_chat_status.setWordWrap(True)
+        layout.addWidget(self.gemini_chat_status)
+
+        self.gemini_chat_history = QPlainTextEdit()
+        self.gemini_chat_history.setReadOnly(True)
+        self.gemini_chat_history.setPlaceholderText(
+            "Percakapan dengan Gemini akan muncul di sini."
+        )
+        layout.addWidget(self.gemini_chat_history, 1)
+
+        self.gemini_chat_input = QPlainTextEdit()
+        self.gemini_chat_input.setMaximumHeight(105)
+        self.gemini_chat_input.setPlaceholderText(
+            "Tulis seperti manusia…\n"
+            "Contoh: Potong di menit 15.32, 31.12, 45.10, 59.34"
+        )
+        layout.addWidget(self.gemini_chat_input)
+
+        buttons = QHBoxLayout()
+        self.gemini_chat_send_btn = QPushButton("Kirim")
+        self.gemini_chat_send_btn.setObjectName("PrimaryButton")
+        self.gemini_chat_clear_btn = QPushButton("Bersihkan Chat")
+        self.gemini_chat_undo_btn = QPushButton("Undo Cut")
+        buttons.addWidget(self.gemini_chat_send_btn)
+        buttons.addWidget(self.gemini_chat_clear_btn)
+        buttons.addWidget(self.gemini_chat_undo_btn)
+        layout.addLayout(buttons)
+
+        note = QLabel(
+            "Catatan: timestamp manual menggunakan PTS frame master, bukan keyframe. "
+            "Ekspor SmartCut tetap diperlukan untuk mempertahankan cut frame-accurate."
+        )
+        note.setObjectName("MutedLabel")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        self.gemini_chat_send_btn.clicked.connect(self._send_gemini_chat)
+        self.gemini_chat_clear_btn.clicked.connect(self._clear_gemini_chat)
+        self.gemini_chat_undo_btn.clicked.connect(lambda: self.tool_undo())
+        return w
+
+
     def _film_cut_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
