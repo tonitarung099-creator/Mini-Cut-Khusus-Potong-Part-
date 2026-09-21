@@ -8,6 +8,7 @@ from minicut_agent.candidates import (
 )
 from minicut_agent.core import ProjectModel, _clear_export_parts, _export_part_files
 from minicut_agent.frame_resolver import resolve_requested_frame, resolve_semantic_frame
+from minicut_agent.workers import FilmCutWorker
 from minicut_agent.gemini import _bounded_offset, _needs_deep_check
 from minicut_agent.manual_commands import extract_manual_timestamps, looks_like_manual_cut
 from minicut_agent.subtitles import SubtitleTrack
@@ -240,6 +241,60 @@ class ExportCleanupTests(unittest.TestCase):
             self.assertFalse(stale1.exists())
             self.assertFalse(stale2.exists())
             self.assertTrue(keep.exists())
+
+
+class FilmCutCacheTests(unittest.TestCase):
+    def test_cache_is_invalidated_when_srt_contents_change_at_same_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "movie.mp4"
+            srt = root / "movie.srt"
+            source.write_bytes(b"video-a")
+            srt.write_text("subtitle-a", encoding="utf-8")
+
+            worker = FilmCutWorker(
+                "ffmpeg",
+                "ffprobe",
+                source,
+                120_000,
+                srt,
+                "dummy-key",
+                "dummy-model",
+            )
+            worker._save_cache([{
+                "target_ms": 60_000,
+                "selected_time_ms": 61_000,
+            }])
+            self.assertIn(60_000, worker._load_cache())
+
+            srt.write_text("subtitle-b-different", encoding="utf-8")
+            self.assertEqual(worker._load_cache(), {})
+
+    def test_cache_is_invalidated_when_video_contents_change_at_same_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "movie.mp4"
+            srt = root / "movie.srt"
+            source.write_bytes(b"video-a")
+            srt.write_text("subtitle-a", encoding="utf-8")
+
+            worker = FilmCutWorker(
+                "ffmpeg",
+                "ffprobe",
+                source,
+                120_000,
+                srt,
+                "dummy-key",
+                "dummy-model",
+            )
+            worker._save_cache([{
+                "target_ms": 60_000,
+                "selected_time_ms": 61_000,
+            }])
+            self.assertIn(60_000, worker._load_cache())
+
+            source.write_bytes(b"video-b-longer")
+            self.assertEqual(worker._load_cache(), {})
 
 
 if __name__ == "__main__":

@@ -257,7 +257,7 @@ class FilmCutWorker(QThread):
     failed = Signal(str)
     cancelled = Signal()
 
-    CACHE_VERSION = 8
+    CACHE_VERSION = 9
 
     def __init__(
         self,
@@ -299,6 +299,17 @@ class FilmCutWorker(QThread):
     def cache_path(self) -> Path:
         return self.source.with_suffix(self.source.suffix + ".minicut-ai-cache.json")
 
+    @staticmethod
+    def _file_signature(path: Path) -> dict | None:
+        try:
+            stat = path.stat()
+            return {
+                "size": int(stat.st_size),
+                "mtime_ns": int(stat.st_mtime_ns),
+            }
+        except OSError:
+            return None
+
     def cancel(self):
         self._cancel = True
 
@@ -311,6 +322,8 @@ class FilmCutWorker(QThread):
                 data.get("version") == self.CACHE_VERSION
                 and data.get("source") == str(self.source.resolve())
                 and data.get("srt") == str(self.srt_path.resolve())
+                and data.get("source_signature") == self._file_signature(self.source)
+                and data.get("srt_signature") == self._file_signature(self.srt_path)
                 and int(data.get("interval_ms") or 0) == self.interval_ms
                 and int(data.get("window_ms") or 0) == self.window_ms
                 and int(data.get("top_n") or 0) == self.top_n
@@ -337,6 +350,8 @@ class FilmCutWorker(QThread):
             "version": self.CACHE_VERSION,
             "source": str(self.source.resolve()),
             "srt": str(self.srt_path.resolve()),
+            "source_signature": self._file_signature(self.source),
+            "srt_signature": self._file_signature(self.srt_path),
             "interval_ms": self.interval_ms,
             "window_ms": self.window_ms,
             "top_n": self.top_n,
