@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QKeySequence, QPainter, QPen, QShortcut
+from PySide6.QtGui import QColor, QKeySequence, QPainter, QPalette, QPen, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
@@ -320,6 +320,24 @@ class MiniCutWindow(QMainWindow):
 
     def _apply_modern_theme(self):
         self.setMinimumSize(1180, 720)
+
+        # Palette global menjaga teks tetap terang pada widget/popup native Windows
+        # yang kadang tidak sepenuhnya mengikuti QSS (terutama QComboBox popup).
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor("#0f1117"))
+        palette.setColor(QPalette.ColorRole.WindowText, QColor("#e8eaf0"))
+        palette.setColor(QPalette.ColorRole.Base, QColor("#14171e"))
+        palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#181c25"))
+        palette.setColor(QPalette.ColorRole.Text, QColor("#e8ebf2"))
+        palette.setColor(QPalette.ColorRole.Button, QColor("#222733"))
+        palette.setColor(QPalette.ColorRole.ButtonText, QColor("#f3f5fa"))
+        palette.setColor(QPalette.ColorRole.Highlight, QColor("#7c5cff"))
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+        palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#20242e"))
+        palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#ffffff"))
+        self.setPalette(palette)
+        QApplication.instance().setPalette(palette)
+
         self.setStyleSheet("""
             QMainWindow, QWidget#Root {
                 background: #0f1117;
