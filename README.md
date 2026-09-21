@@ -4,6 +4,7 @@ Aplikasi desktop Windows untuk membagi film/video menjadi beberapa part dengan b
 
 ## Fitur utama
 
+- **Gemini Chat manual frame-cut** — tulis perintah natural seperti `Potong di menit 15.32, 31.12, 45.10, 59.34`. Timestamp eksplisit dikunci lokal, lalu MiniCut hanya men-snap ke PTS frame master terdekat; Gemini tidak boleh memindahkannya ke scene lain.
 - **Scene Boundary Analyzer** — grid target tetap absolut (mis. 15, 30, 45, 60 menit). Boundary natural boleh bergeser, tetapi tidak menggeser target berikutnya.
 - **Contact sheet + SRT sinkron** — untuk window awal ±2 menit, MiniCut membuat contact sheet lokal sekitar 1 frame/3 detik dan mengirim SRT pada blok waktu yang sama agar Gemini memahami visual + isi percakapan bersama-sama.
 - **NO CUT / Expand** — bila visual dan dialog masih satu rangkaian, Gemini boleh memilih NO CUT. MiniCut lalu menambah pencarian sekitar +3 menit tanpa memaksa cut dan tanpa menggeser grid target berikutnya.
