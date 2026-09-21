@@ -143,6 +143,37 @@ class PreviewPlayer(QObject):
                 "libmpv tidak tersedia; memakai Qt fallback. " + str(exc)
             )
 
+    def _activate_qt_fallback(
+        self,
+        reason: str,
+        position_ms: int | None = None,
+        autoplay: bool | None = None,
+    ) -> None:
+        if position_ms is None:
+            position_ms = int(self._last_position)
+        if autoplay is None:
+            autoplay = bool(self._last_playing)
+
+        old = self._mpv
+        self._mpv = None
+        self._backend = "qt"
+        self._stack.setCurrentWidget(self._qt_surface)
+        if old is not None:
+            try:
+                old.terminate()
+            except Exception:
+                pass
+
+        self.backendChanged.emit(self.backend_name)
+        self.errorOccurred.emit("mpv fallback → Qt: " + str(reason))
+
+        if self._source:
+            self._load_qt(
+                self._source,
+                max(0, int(position_ms)),
+                bool(autoplay),
+            )
+
     def _mpv_log(self, level, component, message) -> None:
         if str(level).lower() in {"fatal", "error"}:
             self.errorOccurred.emit(f"mpv/{component}: {str(message).strip()}")
@@ -173,7 +204,11 @@ class PreviewPlayer(QObject):
                     80, lambda ms=position_ms: self.set_position(ms)
                 )
         except Exception as exc:
-            self.errorOccurred.emit("mpv load: " + str(exc))
+            self._activate_qt_fallback(
+                "gagal membuka media: " + str(exc),
+                position_ms=position_ms,
+                autoplay=autoplay,
+            )
 
     def _load_qt(self, path: Path, position_ms: int, autoplay: bool) -> None:
         self._stack.setCurrentWidget(self._qt_surface)
