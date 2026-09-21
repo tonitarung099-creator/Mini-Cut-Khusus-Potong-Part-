@@ -158,6 +158,7 @@ class GeminiChatWorker(QThread):
         state: dict,
         locked_timestamps: list[dict],
         history: list[dict[str, str]],
+        tool_manifest: dict,
     ):
         super().__init__()
         self.api_key = api_key
@@ -166,6 +167,7 @@ class GeminiChatWorker(QThread):
         self.state = dict(state)
         self.locked_timestamps = list(locked_timestamps)
         self.history = list(history)
+        self.tool_manifest = dict(tool_manifest)
 
     def run(self):
         try:
@@ -175,6 +177,7 @@ class GeminiChatWorker(QThread):
                 self.state,
                 locked_timestamps=self.locked_timestamps,
                 history=self.history,
+                tool_manifest=self.tool_manifest,
             )
             self.ready.emit(result)
         except Exception as exc:
