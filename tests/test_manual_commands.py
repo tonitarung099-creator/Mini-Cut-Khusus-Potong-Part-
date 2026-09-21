@@ -34,6 +34,9 @@ class ManualCommandTimestampTests(unittest.TestCase):
     def test_cut_intent(self):
         self.assertTrue(looks_like_manual_cut("tolong cut 1 jam lebih 2 menit"))
 
+    def test_remove_cut_is_not_add_cut_intent(self):
+        self.assertFalse(looks_like_manual_cut("hapus cut di 1 jam lebih 2 menit"))
+
 
 if __name__ == "__main__":
     unittest.main()
