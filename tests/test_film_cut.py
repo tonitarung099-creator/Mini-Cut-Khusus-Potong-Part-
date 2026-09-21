@@ -6,8 +6,9 @@ from unittest.mock import patch
 from minicut_agent.candidates import (
     LocalCandidate, proximity_shortlist, rank_candidates, target_times
 )
-from minicut_agent.frame_resolver import resolve_semantic_frame
+from minicut_agent.frame_resolver import resolve_requested_frame, resolve_semantic_frame
 from minicut_agent.gemini import _bounded_offset, _needs_deep_check
+from minicut_agent.manual_commands import extract_manual_timestamps, looks_like_manual_cut
 from minicut_agent.subtitles import SubtitleTrack
 
 
@@ -71,6 +72,44 @@ class CandidateTests(unittest.TestCase):
             self.assertTrue(ranked)
             self.assertTrue(ranked[0].subtitle_safe)
             self.assertLessEqual(abs(ranked[0].time_ms - (target + 25_000)), 500)
+
+
+class ManualCommandTests(unittest.TestCase):
+    def test_dot_timestamps_are_minutes_seconds(self):
+        items = extract_manual_timestamps(
+            "Potong di menit 15.32, 31.12, 45.10, 59.34"
+        )
+        self.assertTrue(looks_like_manual_cut("Potong di menit 15.32"))
+        self.assertEqual(
+            [x.time_ms for x in items],
+            [
+                15 * 60_000 + 32_000,
+                31 * 60_000 + 12_000,
+                45 * 60_000 + 10_000,
+                59 * 60_000 + 34_000,
+            ],
+        )
+
+    def test_hh_mm_ss_and_natural_indonesian(self):
+        items = extract_manual_timestamps(
+            "cut 01:15:32 dan 20 menit 7 detik"
+        )
+        self.assertEqual(items[0].time_ms, (3600 + 15 * 60 + 32) * 1000)
+        self.assertEqual(items[1].time_ms, (20 * 60 + 7) * 1000)
+
+    def test_requested_frame_uses_nearest_real_pts_only(self):
+        with patch(
+            "minicut_agent.frame_resolver.probe_frame_timestamps",
+            return_value=[931_960, 932_000, 932_040],
+        ):
+            result = resolve_requested_frame(
+                Path("movie.mp4"),
+                "ffprobe",
+                requested_ms=932_013,
+            )
+        self.assertTrue(result["frame_verified"])
+        self.assertEqual(result["time_ms"], 932_000)
+        self.assertEqual(result["frame_delta_ms"], -13)
 
 
 class SemanticCutTests(unittest.TestCase):
