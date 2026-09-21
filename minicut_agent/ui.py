@@ -2081,7 +2081,7 @@ class MiniCutWindow(QMainWindow):
             self._gemini_chat_model,
             text,
             self.model.state(),
-            locked,
+            locked if manual_cut else [],
             history_for_api,
             self.registry.manifest(),
         )
@@ -2106,7 +2106,7 @@ class MiniCutWindow(QMainWindow):
             names = ", ".join(step["tool"] for step in plan["steps"])
             self._append_gemini_chat(
                 "system",
-                "Aksi MiniCut dijalankan: " + names,
+                "Aksi MiniCut diproses: " + names,
             )
             self._log("Gemini Chat menjalankan: " + names)
             self._refresh()
@@ -2315,6 +2315,12 @@ class MiniCutWindow(QMainWindow):
                 "system",
                 "Cut manual dibatalkan karena frame lock gagal: " + str(exc),
             )
+            if self._gemini_chat_deferred_actions:
+                self._append_gemini_chat(
+                    "system",
+                    "Aksi lanjutan dibatalkan karena frame-lock tidak berhasil.",
+                )
+                self._gemini_chat_deferred_actions = []
             return
 
         if added:
