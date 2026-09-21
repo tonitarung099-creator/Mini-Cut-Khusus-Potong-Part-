@@ -179,7 +179,7 @@ class MiniCutWindow(QMainWindow):
         preview_header = QHBoxLayout()
         preview_title = QLabel("PREVIEW")
         preview_title.setObjectName("SectionTitle")
-        self.review_badge = QLabel("SMOOTH REVIEW")
+        self.review_badge = QLabel("MASTER DIRECT")
         self.review_badge.setObjectName("Badge")
         preview_header.addWidget(preview_title)
         preview_header.addStretch(1)
@@ -1013,9 +1013,10 @@ class MiniCutWindow(QMainWindow):
     def _connect_player(self):
         self.player.positionChanged.connect(self._position_changed)
         self.player.durationChanged.connect(self._duration_changed)
-        self.player.playbackStateChanged.connect(self._playback_changed)
-        self.player.mediaStatusChanged.connect(self._media_status_changed)
-        self.player.errorOccurred.connect(lambda _e, text: self._log("Player: " + text))
+        self.player.playbackChanged.connect(self._playback_changed)
+        self.player.backendChanged.connect(self._player_backend_changed)
+        self.player.errorOccurred.connect(lambda text: self._log("Player: " + str(text)))
+        self._player_backend_changed(self.player.backend_name)
 
     # ---------- loading ----------
     def _choose_video(self):
@@ -2064,7 +2065,7 @@ class MiniCutWindow(QMainWindow):
             self.undo_stack.append(before)
             self._refresh()
             first_actual = int(added[0][0].actual_ms)
-            self.player.setPosition(first_actual)
+            self.player.set_position(first_actual)
             self.model.playhead_ms = first_actual
 
         lines = []
@@ -2739,18 +2740,6 @@ class MiniCutWindow(QMainWindow):
                 event.ignore()
                 return
 
-        if self.proxy_worker and self.proxy_worker.isRunning():
-            self.proxy_worker.cancel()
-            self.proxy_worker.wait(5000)
-            if self.proxy_worker.isRunning():
-                QMessageBox.information(
-                    self,
-                    APP_TITLE,
-                    "Proxy masih dihentikan. Coba tutup lagi beberapa saat.",
-                )
-                event.ignore()
-                return
-
         if self.film_cut_worker and self.film_cut_worker.isRunning():
             answer = QMessageBox.question(
                 self, APP_TITLE, "AI Film Cut masih berjalan. Batalkan proses?"
@@ -2797,5 +2786,5 @@ class MiniCutWindow(QMainWindow):
                 return
 
         self.bridge.stop()
-        self.player.stop()
+        self.player.shutdown()
         event.accept()
