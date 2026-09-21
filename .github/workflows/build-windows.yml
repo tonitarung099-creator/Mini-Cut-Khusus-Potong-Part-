@@ -135,6 +135,14 @@ jobs:
             throw "MiniCut layout self-test failed with exit code $($p.ExitCode)"
           }
 
+      - name: Upload UI check screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiniCut-UI-Check
+          path: ui-layout-screens
+          if-no-files-found: warn
+
       - name: Package ZIP
         shell: pwsh
         run: |

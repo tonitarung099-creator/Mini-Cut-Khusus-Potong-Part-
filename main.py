@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 from minicut_agent.ui import MiniCutWindow
@@ -22,6 +23,24 @@ def main():
                 win.resize(1120, 680)
                 app.processEvents()
                 issues = win.ui_layout_issues()
+
+                # Keep real Windows screenshots for visual inspection in CI.
+                screen_dir = Path("ui-layout-screens")
+                screen_dir.mkdir(parents=True, exist_ok=True)
+                original_tab = win.tabs.currentIndex()
+                for index in range(win.tabs.count()):
+                    win.tabs.setCurrentIndex(index)
+                    app.processEvents()
+                    safe_name = "".join(
+                        ch if ch.isalnum() else "-"
+                        for ch in win.tabs.tabText(index).strip().lower()
+                    ).strip("-") or f"tab-{index + 1}"
+                    win.grab().save(
+                        str(screen_dir / f"{index + 1:02d}-{safe_name}.png")
+                    )
+                win.tabs.setCurrentIndex(original_tab)
+                app.processEvents()
+
                 if issues:
                     for issue in issues:
                         print("layout-failed: " + issue, flush=True)
