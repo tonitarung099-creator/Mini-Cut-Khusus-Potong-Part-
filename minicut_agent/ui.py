@@ -1000,6 +1000,16 @@ class MiniCutWindow(QMainWindow):
         film_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.film_table, 1)
 
+        review_actions = QHBoxLayout()
+        self.film_preview_btn = QPushButton("Preview Terpilih")
+        self.film_preview_btn.setEnabled(False)
+        review_hint = QLabel("Double-click baris atau pilih lalu Preview. NO CUT membuka target grid.")
+        review_hint.setObjectName("MutedLabel")
+        review_hint.setWordWrap(True)
+        review_actions.addWidget(self.film_preview_btn)
+        review_actions.addWidget(review_hint, 1)
+        layout.addLayout(review_actions)
+
         self.srt_btn.clicked.connect(self._choose_srt)
         self.gemini_manage_btn.clicked.connect(self._open_gemini_manager)
         self.gemini_key_combo.currentIndexChanged.connect(self._film_key_changed)
@@ -1008,6 +1018,8 @@ class MiniCutWindow(QMainWindow):
         self.film_analyze_btn.clicked.connect(self._start_film_cut)
         self.film_cancel_btn.clicked.connect(self._cancel_film_cut)
         self.film_apply_btn.clicked.connect(self._apply_film_cut)
+        self.film_preview_btn.clicked.connect(self._preview_selected_film_cut)
+        self.film_table.itemSelectionChanged.connect(self._film_cut_selection_changed)
         self.film_table.cellDoubleClicked.connect(self._preview_film_cut_row)
         self._refresh_gemini_key_views()
         return w
@@ -1221,6 +1233,8 @@ class MiniCutWindow(QMainWindow):
         if hasattr(self, 'film_table'):
             self.film_table.setRowCount(0)
             self.film_apply_btn.setEnabled(False)
+            if hasattr(self, "film_preview_btn"):
+                self.film_preview_btn.setEnabled(False)
         self.pending_load = None
         self.analyze_worker = None
         self.progress.setRange(0, 100)
@@ -2333,6 +2347,7 @@ class MiniCutWindow(QMainWindow):
         self._film_usage_seen_prompt_tokens = 0
         self.film_table.setRowCount(0)
         self.film_apply_btn.setEnabled(False)
+        self.film_preview_btn.setEnabled(False)
         self.film_analyze_btn.setEnabled(False)
         self.film_cancel_btn.setEnabled(True)
         self.progress.setRange(0, 100)
@@ -2472,18 +2487,38 @@ class MiniCutWindow(QMainWindow):
             if int(x.get("selected_time_ms") or 0) > 0
         ]
         self.timeline.set_marks(preview_marks)
+        if self.film_table.currentRow() < 0:
+            self.film_table.selectRow(row)
+        self._film_cut_selection_changed()
+
+    def _film_cut_selection_changed(self):
+        has_selection = self.film_table.currentRow() >= 0
+        self.film_preview_btn.setEnabled(bool(has_selection and self.model.source))
+
+    def _preview_selected_film_cut(self):
+        row = self.film_table.currentRow()
+        if row >= 0:
+            self._preview_film_cut_row(row, 1)
 
     def _preview_film_cut_row(self, row: int, _column: int):
-        item = self.film_table.item(int(row), 1)
-        if not item:
+        cut_item = self.film_table.item(int(row), 1)
+        target_item = self.film_table.item(int(row), 0)
+        if not cut_item or not self.model.source:
             return
-        cut_ms = int(item.data(Qt.ItemDataRole.UserRole) or 0)
-        if cut_ms <= 0 or not self.model.source:
+
+        preview_ms = int(cut_item.data(Qt.ItemDataRole.UserRole) or 0)
+        preview_kind = "cut"
+        if preview_ms <= 0 and target_item:
+            preview_ms = int(target_item.data(Qt.ItemDataRole.UserRole) or 0)
+            preview_kind = "target grid · NO CUT"
+        if preview_ms <= 0:
             return
+
         self.player.pause()
-        self.tool_seek(cut_ms)
+        self.tool_seek(preview_ms)
         self.status.setText(
-            f"Preview cut · {clock_text(cut_ms)} · double-click hasil lain untuk membandingkan."
+            f"Preview {preview_kind} · {clock_text(preview_ms)} · "
+            "pilih hasil lain untuk membandingkan."
         )
 
     def _film_cut_usage(self, usage: dict):
