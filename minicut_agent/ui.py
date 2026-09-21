@@ -1853,6 +1853,279 @@ class MiniCutWindow(QMainWindow):
         self._refresh_gemini_key_views()
         self.gemini_batch_status_label.setText("Cek semua API dibatalkan.")
 
+    # ---------- Gemini Chat / manual frame cuts ----------
+    def _append_gemini_chat(self, role: str, text: str):
+        clean = str(text or "").strip()
+        if not clean:
+            return
+        label = {
+            "user": "Kamu",
+            "assistant": "Gemini",
+            "system": "MiniCut",
+        }.get(role, role.title())
+        if hasattr(self, "gemini_chat_history"):
+            if self.gemini_chat_history.toPlainText().strip():
+                self.gemini_chat_history.appendPlainText("")
+            self.gemini_chat_history.appendPlainText(f"{label}: {clean}")
+            bar = self.gemini_chat_history.verticalScrollBar()
+            bar.setValue(bar.maximum())
+        if role in {"user", "assistant"}:
+            self._gemini_chat_history_data.append({
+                "role": role,
+                "text": clean,
+            })
+            self._gemini_chat_history_data = self._gemini_chat_history_data[-16:]
+
+    def _clear_gemini_chat(self):
+        self._gemini_chat_history_data = []
+        self._gemini_chat_pending_manual = []
+        if hasattr(self, "gemini_chat_history"):
+            self.gemini_chat_history.clear()
+        if hasattr(self, "gemini_chat_status"):
+            self.gemini_chat_status.setText(
+                "Chat dibersihkan. Timestamp manual tetap tidak mengubah cut yang sudah ada."
+            )
+
+    def _send_gemini_chat(self):
+        if self.gemini_chat_worker and self.gemini_chat_worker.isRunning():
+            QMessageBox.information(self, APP_TITLE, "Gemini Chat sedang menjawab.")
+            return
+        if self.manual_cut_worker and self.manual_cut_worker.isRunning():
+            QMessageBox.information(self, APP_TITLE, "Sedang mengunci timestamp ke frame master.")
+            return
+
+        text = self.gemini_chat_input.toPlainText().strip()
+        if not text:
+            return
+
+        timestamps = extract_manual_timestamps(text)
+        manual_cut = bool(timestamps) and looks_like_manual_cut(text)
+        locked = [
+            {"raw": item.raw, "time_ms": item.time_ms, "time": item.time}
+            for item in timestamps
+        ]
+
+        if manual_cut and not self.model.source:
+            QMessageBox.warning(self, APP_TITLE, "Buka video terlebih dahulu sebelum memberi perintah cut.")
+            return
+
+        self._append_gemini_chat("user", text)
+        self.gemini_chat_input.clear()
+        self._gemini_chat_pending_manual = locked if manual_cut else []
+
+        if manual_cut:
+            locked_text = ", ".join(item["time"] for item in locked)
+            self.gemini_chat_status.setText(
+                "Timestamp terkunci: " + locked_text + " · menunggu respons Gemini…"
+            )
+
+        key_id = self.gemini_keys.active_id()
+        if not key_id:
+            if manual_cut:
+                self._append_gemini_chat(
+                    "system",
+                    "Belum ada API Gemini aktif. Timestamp eksplisit tetap aman; "
+                    "MiniCut akan menjalankan cut frame-accurate secara lokal.",
+                )
+                self._start_manual_frame_cuts(locked)
+                return
+            QMessageBox.warning(
+                self, APP_TITLE, "Tambahkan Gemini API key terlebih dahulu."
+            )
+            self._open_gemini_manager()
+            return
+
+        try:
+            secret = self.gemini_keys.get_secret(key_id)
+        except Exception as exc:
+            if manual_cut:
+                self._append_gemini_chat(
+                    "system",
+                    "API Gemini tidak dapat dibaca, tetapi timestamp manual tetap dijalankan lokal.",
+                )
+                self._start_manual_frame_cuts(locked)
+                return
+            QMessageBox.critical(self, APP_TITLE, str(exc))
+            return
+
+        self._gemini_chat_key_id = key_id
+        self._gemini_chat_model = self._current_gemini_model()
+        self.gemini_chat_send_btn.setEnabled(False)
+        history_for_api = self._gemini_chat_history_data[:-1]
+        self.gemini_chat_worker = GeminiChatWorker(
+            secret,
+            self._gemini_chat_model,
+            text,
+            self.model.state(),
+            locked,
+            history_for_api,
+        )
+        self.gemini_chat_worker.ready.connect(self._gemini_chat_ready)
+        self.gemini_chat_worker.failed.connect(self._gemini_chat_failed)
+        self.gemini_chat_worker.start()
+
+    def _gemini_chat_ready(self, result: dict):
+        self.gemini_chat_worker = None
+        self.gemini_chat_send_btn.setEnabled(True)
+        usage = result.get("usage") or {}
+        if self._gemini_chat_key_id:
+            self.gemini_keys.record_usage(
+                self._gemini_chat_key_id,
+                self._gemini_chat_model,
+                requests=int(usage.get("requests") or 0),
+                prompt_tokens=int(usage.get("prompt_tokens") or 0),
+                status="ready",
+                checked=True,
+            )
+        reply = str(result.get("reply") or "").strip()
+        if reply:
+            self._append_gemini_chat("assistant", reply)
+        self._refresh_gemini_key_views()
+
+        pending = list(self._gemini_chat_pending_manual)
+        self._gemini_chat_pending_manual = []
+        if pending:
+            self._start_manual_frame_cuts(pending)
+        else:
+            self.gemini_chat_status.setText(
+                f"Gemini siap · {self._gemini_chat_model}"
+            )
+
+    def _gemini_chat_failed(self, message: str):
+        self.gemini_chat_worker = None
+        self.gemini_chat_send_btn.setEnabled(True)
+        if self._gemini_chat_key_id:
+            self.gemini_keys.mark_error(
+                self._gemini_chat_key_id,
+                self._gemini_chat_model,
+                message,
+            )
+        pending = list(self._gemini_chat_pending_manual)
+        self._gemini_chat_pending_manual = []
+        self._refresh_gemini_key_views()
+
+        if pending:
+            self._append_gemini_chat(
+                "system",
+                "Gemini sedang tidak tersedia/limit. Karena timestamp sudah kamu tentukan sendiri, "
+                "MiniCut tetap melanjutkan snap ke frame master tanpa mengubah waktunya.",
+            )
+            self._start_manual_frame_cuts(pending)
+            return
+
+        self.gemini_chat_status.setText("Gemini Chat gagal.")
+        self._append_gemini_chat("system", "Gemini gagal: " + str(message))
+
+    def _start_manual_frame_cuts(self, locked: list[dict]):
+        if not self.model.source:
+            self._append_gemini_chat("system", "Buka video terlebih dahulu.")
+            return
+        ffprobe = find_tool("ffprobe")
+        if not ffprobe:
+            self._append_gemini_chat(
+                "system",
+                "ffprobe tidak ditemukan. Frame master belum bisa dikunci.",
+            )
+            return
+
+        valid: list[dict] = []
+        outside: list[str] = []
+        for item in locked:
+            ms = int(item.get("time_ms") or 0)
+            if 0 < ms < self.model.duration_ms:
+                valid.append(dict(item))
+            else:
+                outside.append(str(item.get("raw") or clock_text(ms)))
+        if outside:
+            self._append_gemini_chat(
+                "system",
+                "Timestamp di luar durasi video: " + ", ".join(outside),
+            )
+        if not valid:
+            return
+
+        self.gemini_chat_send_btn.setEnabled(False)
+        self.gemini_chat_status.setText(
+            f"Mengunci {len(valid)} timestamp ke frame master nyata…"
+        )
+        self.manual_cut_worker = ManualFrameCutWorker(
+            self.model.source,
+            ffprobe,
+            valid,
+        )
+        self.manual_cut_worker.progress_changed.connect(self._manual_cut_progress)
+        self.manual_cut_worker.ready.connect(self._manual_cut_ready)
+        self.manual_cut_worker.failed.connect(self._manual_cut_failed)
+        self.manual_cut_worker.start()
+
+    def _manual_cut_progress(self, index: int, total: int, raw: str):
+        self.gemini_chat_status.setText(
+            f"Frame lock {index}/{total} · {raw}"
+        )
+
+    def _manual_cut_ready(self, resolved: list):
+        self.manual_cut_worker = None
+        self.gemini_chat_send_btn.setEnabled(True)
+        before = self._snapshot()
+        added = []
+        skipped = []
+        try:
+            for item in resolved:
+                actual_ms = int(item["time_ms"])
+                if any(abs(c.actual_ms - actual_ms) < 2 for c in self.model.cuts):
+                    skipped.append(item)
+                    continue
+                cut = self.model.add_frame_cut(
+                    int(item["requested_ms"]),
+                    actual_ms,
+                )
+                added.append((cut, item))
+        except Exception as exc:
+            self.model.cuts = before
+            self.model.dirty = True
+            self._refresh()
+            self._append_gemini_chat(
+                "system",
+                "Cut manual dibatalkan karena frame lock gagal: " + str(exc),
+            )
+            return
+
+        if added:
+            self.undo_stack.append(before)
+            self._refresh()
+            first_actual = int(added[0][0].actual_ms)
+            self.player.setPosition(first_actual)
+            self.model.playhead_ms = first_actual
+
+        lines = []
+        for cut, item in added:
+            delta = int(item.get("frame_delta_ms") or 0)
+            sign = "+" if delta >= 0 else ""
+            lines.append(
+                f"{clock_text(cut.requested_ms)} → {clock_text(cut.actual_ms)} "
+                f"({sign}{delta} ms)"
+            )
+        if skipped:
+            lines.append(f"{len(skipped)} titik dilewati karena frame cut sudah ada.")
+
+        if lines:
+            self._append_gemini_chat(
+                "system",
+                "Cut frame-accurate diterapkan:\n" + "\n".join(lines),
+            )
+        self.gemini_chat_status.setText(
+            f"Selesai · {len(added)} cut dikunci ke PTS frame master."
+        )
+
+    def _manual_cut_failed(self, message: str):
+        self.manual_cut_worker = None
+        self.gemini_chat_send_btn.setEnabled(True)
+        self.gemini_chat_status.setText("Frame lock manual gagal.")
+        self._append_gemini_chat(
+            "system",
+            "Gagal mengunci timestamp ke frame master: " + str(message),
+        )
+
     # ---------- AI Film Cut / Gemini ----------
     def _choose_srt(self):
         path, _ = QFileDialog.getOpenFileName(self, "Pilih subtitle SRT", "", "Subtitle (*.srt)")
