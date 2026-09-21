@@ -19,10 +19,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -137,7 +137,7 @@ jobs:
 
       - name: Upload UI check screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: MiniCut-UI-Check
           path: ui-layout-screens
@@ -149,7 +149,7 @@ jobs:
           Compress-Archive -Path "dist/MiniCut Studio Agent/*" -DestinationPath "MiniCut-Windows.zip" -Force
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: MiniCut-Windows
           path: MiniCut-Windows.zip
