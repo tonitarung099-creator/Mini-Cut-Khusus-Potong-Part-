@@ -38,6 +38,7 @@ class ToolRegistry:
                 {"name": "set_export_mode", "args": {"mode": "smartcut|fast"}, "description": "Pilih mode ekspor SmartCut frame-accurate atau Fast Copy."},
                 {"name": "save_project", "args": {}, "description": "Simpan proyek ke path aktif atau minta lokasi."},
                 {"name": "export_all", "args": {}, "description": "Ekspor semua part."},
+                {"name": "cancel_export", "args": {}, "description": "Batalkan ekspor yang sedang berjalan."},
                 {"name": "undo", "args": {}, "description": "Batalkan perubahan agent terakhir."},
             ],
         }

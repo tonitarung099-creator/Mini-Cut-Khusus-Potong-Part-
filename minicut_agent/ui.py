@@ -1999,27 +1999,66 @@ class MiniCutWindow(QMainWindow):
         )
 
     def _send_gemini_chat(self):
+        text = self.gemini_chat_input.toPlainText().strip()
+        if not text:
+            return
+        low = " ".join(text.lower().split())
+        cancel_words = ("batalkan", "batal", "cancel", "stop", "hentikan")
+
+        # Cancellation must remain available while a long-running process owns
+        # Gemini/the export worker. These commands are deterministic local
+        # controls, so they do not need another API request just to stop work.
+        if self.film_cut_worker and self.film_cut_worker.isRunning():
+            if any(word in low for word in cancel_words) and any(
+                hint in low for hint in ("film cut", "ai film", "analisis film", "analisa film")
+            ):
+                self._append_gemini_chat("user", text)
+                self.gemini_chat_input.clear()
+                result = self.tool_cancel_film_cut()
+                self._append_gemini_chat(
+                    "system",
+                    "Permintaan pembatalan AI Film Cut dikirim."
+                    if result.get("cancel_requested")
+                    else "AI Film Cut tidak sedang berjalan.",
+                )
+                return
+            QMessageBox.information(
+                self, APP_TITLE,
+                "AI Film Cut sedang berjalan. Kamu tetap bisa mengetik 'batalkan AI Film Cut'."
+            )
+            return
+
+        if self.export_worker and self.export_worker.isRunning():
+            if any(word in low for word in cancel_words) and any(
+                hint in low for hint in ("ekspor", "export", "render")
+            ):
+                self._append_gemini_chat("user", text)
+                self.gemini_chat_input.clear()
+                result = self.tool_cancel_export()
+                self._append_gemini_chat(
+                    "system",
+                    "Permintaan pembatalan ekspor dikirim."
+                    if result.get("cancel_requested")
+                    else "Ekspor tidak sedang berjalan.",
+                )
+                return
+            QMessageBox.information(
+                self, APP_TITLE,
+                "Ekspor sedang berjalan. Kamu tetap bisa mengetik 'batalkan ekspor'."
+            )
+            return
+
         if self.gemini_batch_worker and self.gemini_batch_worker.isRunning():
             QMessageBox.information(self, APP_TITLE, "Cek Semua API sedang berjalan.")
             return
         if self.gemini_test_worker and self.gemini_test_worker.isRunning():
             QMessageBox.information(self, APP_TITLE, "Tes API sedang berjalan.")
             return
-        if self.film_cut_worker and self.film_cut_worker.isRunning():
-            QMessageBox.information(self, APP_TITLE, "Tunggu AI Film Cut selesai.")
-            return
-        if self.export_worker and self.export_worker.isRunning():
-            QMessageBox.information(self, APP_TITLE, "Tunggu ekspor selesai.")
-            return
         if self.gemini_chat_worker and self.gemini_chat_worker.isRunning():
             QMessageBox.information(self, APP_TITLE, "Gemini Chat sedang menjawab.")
             return
         if self.manual_cut_worker and self.manual_cut_worker.isRunning():
             QMessageBox.information(self, APP_TITLE, "Sedang mengunci timestamp ke frame master.")
-            return
-
-        text = self.gemini_chat_input.toPlainText().strip()
-        if not text:
             return
 
         timestamps = extract_manual_timestamps(text)
@@ -3022,6 +3061,13 @@ class MiniCutWindow(QMainWindow):
             "mode": mode,
             "output_dir": str(out_dir),
         }
+
+    def tool_cancel_export(self):
+        running = bool(self.export_worker and self.export_worker.isRunning())
+        if running:
+            self.export_worker.cancel()
+            self.status.setText("Membatalkan ekspor setelah proses aktif selesai…")
+        return {"ok": True, "cancel_requested": running}
 
     def tool_undo(self):
         if not self.undo_stack:
