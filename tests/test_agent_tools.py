@@ -53,6 +53,10 @@ class _TransactionalHost:
         self.calls.append("save_project")
         return {"ok": False, "cancelled": True}
 
+    def tool_open_video(self):
+        self.calls.append("open_video")
+        return {"ok": True, "loading": True, "stop_plan": True}
+
 
 class AgentTransactionTests(unittest.TestCase):
     def test_failed_multistep_plan_rolls_back_timeline(self):
@@ -80,6 +84,20 @@ class AgentTransactionTests(unittest.TestCase):
                 ]
             })
         self.assertEqual(host.calls, ["save_project"])
+        self.assertEqual(host.cuts, ["awal"])
+        self.assertFalse(host.dirty)
+
+    def test_async_boundary_stops_following_steps_without_error(self):
+        host = _TransactionalHost()
+        planner = AgentPlanner(ToolRegistry(host))
+        results = planner.apply({
+            "steps": [
+                {"tool": "open_video", "args": {}},
+                {"tool": "clear_cuts", "args": {}},
+            ]
+        })
+        self.assertEqual(host.calls, ["open_video"])
+        self.assertEqual(len(results), 1)
         self.assertEqual(host.cuts, ["awal"])
         self.assertFalse(host.dirty)
 

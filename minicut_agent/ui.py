@@ -1188,29 +1188,31 @@ class MiniCutWindow(QMainWindow):
         self._player_backend_changed(self.player.backend_name)
 
     # ---------- loading ----------
-    def _choose_video(self):
+    def _choose_video(self) -> bool:
         path, _ = QFileDialog.getOpenFileName(
             self, "Buka video", "", "Video (*.mp4 *.mkv *.mov *.avi *.webm *.m4v *.ts *.mts);;Semua file (*)"
         )
-        if path:
-            self._begin_load(Path(path))
+        if not path:
+            return False
+        return self._begin_load(Path(path))
 
-    def _choose_project(self):
+    def _choose_project(self) -> bool:
         path, _ = QFileDialog.getOpenFileName(self, "Buka proyek MiniCut", "", "MiniCut JSON (*.json)")
         if not path:
-            return
+            return False
         try:
             data, source = load_project_file(Path(path))
             if not source:
                 chosen, _ = QFileDialog.getOpenFileName(self, "Cari video sumber", "", "Video (*.*)")
                 if not chosen:
-                    return
+                    return False
                 source = Path(chosen)
-            self._begin_load(source, data, Path(path))
+            return self._begin_load(source, data, Path(path))
         except Exception as exc:
             QMessageBox.critical(self, APP_TITLE, str(exc))
+            return False
 
-    def _begin_load(self, source: Path, project_data: dict | None = None, project_path: Path | None = None):
+    def _begin_load(self, source: Path, project_data: dict | None = None, project_path: Path | None = None) -> bool:
         if (
             (self.manual_cut_worker and self.manual_cut_worker.isRunning())
             or (self.gemini_chat_worker and self.gemini_chat_worker.isRunning())
@@ -1223,7 +1225,7 @@ class MiniCutWindow(QMainWindow):
                 APP_TITLE,
                 "Tunggu proses edit/AI yang sedang berjalan sebelum membuka video atau proyek lain.",
             )
-            return
+            return False
         self._frame_pts_cache = []
         self._frame_pts_cache_start = 0
         self._frame_pts_cache_end = 0
@@ -1232,10 +1234,10 @@ class MiniCutWindow(QMainWindow):
         ffprobe = find_tool("ffprobe")
         if not ffprobe:
             QMessageBox.critical(self, APP_TITLE, "ffprobe tidak ditemukan. Pastikan FFmpeg tersedia.")
-            return
+            return False
         if not source.is_file():
             QMessageBox.warning(self, APP_TITLE, "File video tidak ditemukan.")
-            return
+            return False
         self.pending_load = (source.resolve(), project_data, project_path)
         self.status.setText("Menganalisis video dan keyframe…")
         self.progress.setRange(0, 0)
@@ -1243,6 +1245,7 @@ class MiniCutWindow(QMainWindow):
         self.analyze_worker.ready.connect(self._analysis_ready)
         self.analyze_worker.failed.connect(self._analysis_failed)
         self.analyze_worker.start()
+        return True
 
     def _analysis_ready(self, metadata: dict, keyframes: list):
         assert self.pending_load is not None
@@ -1535,7 +1538,8 @@ class MiniCutWindow(QMainWindow):
         before = self._snapshot()
         try:
             results = self.planner.apply(self.pending_plan)
-            if any(step["tool"] in MUTATING_TOOLS for step in self.pending_plan["steps"]):
+            executed_steps = [item["step"] for item in results]
+            if any(step["tool"] in MUTATING_TOOLS for step in executed_steps):
                 self.undo_stack.append(before)
             self.plan_preview.setPlainText(json.dumps(
                 {"plan": self.pending_plan, "results": results}, ensure_ascii=False, indent=2
@@ -2202,12 +2206,16 @@ class MiniCutWindow(QMainWindow):
                 "steps": steps,
             })
             results = self.planner.apply(plan)
-            if any(step["tool"] in MUTATING_TOOLS for step in plan["steps"]):
+            executed_steps = [item["step"] for item in results]
+            if any(step["tool"] in MUTATING_TOOLS for step in executed_steps):
                 self.undo_stack.append(before)
-            names = ", ".join(step["tool"] for step in plan["steps"])
+            names = ", ".join(step["tool"] for step in executed_steps)
+            suffix = ""
+            if len(executed_steps) < len(plan["steps"]):
+                suffix = " · aksi berikutnya menunggu proses aktif selesai"
             self._append_gemini_chat(
                 "system",
-                "Aksi MiniCut diproses: " + names,
+                "Aksi MiniCut diproses: " + names + suffix,
             )
             self._log("Gemini Chat menjalankan: " + names)
             self._refresh()
@@ -2471,12 +2479,14 @@ class MiniCutWindow(QMainWindow):
         self._refresh_gemini_chat_controls()
 
     # ---------- AI Film Cut / Gemini ----------
-    def _choose_srt(self):
+    def _choose_srt(self) -> bool:
         path, _ = QFileDialog.getOpenFileName(self, "Pilih subtitle SRT", "", "Subtitle (*.srt)")
-        if path:
-            self.srt_path = Path(path).resolve()
-            self.srt_edit.setText(str(self.srt_path))
-            self.film_status_label.setText("SRT siap. MiniCut akan menggunakannya untuk verifikasi dialog.")
+        if not path:
+            return False
+        self.srt_path = Path(path).resolve()
+        self.srt_edit.setText(str(self.srt_path))
+        self.film_status_label.setText("SRT siap. MiniCut akan menggunakannya untuk verifikasi dialog.")
+        return True
 
     def _test_gemini(self):
         key_id = self.gemini_keys.active_id()
@@ -2906,30 +2916,35 @@ class MiniCutWindow(QMainWindow):
     def tool_open_video(self):
         """Open the normal video picker from Gemini chat."""
         before = str(self.model.source) if self.model.source else None
-        self._choose_video()
+        started = bool(self._choose_video())
         return {
-            "ok": True,
+            "ok": started,
+            "cancelled": not started,
             "dialog": "open_video",
             "previous_source": before,
-            "loading": bool(self.analyze_worker and self.analyze_worker.isRunning()),
+            "loading": started,
+            "stop_plan": started,
         }
 
     def tool_open_project(self):
         """Open the normal MiniCut project picker from Gemini chat."""
         before = str(self.model.project_path) if self.model.project_path else None
-        self._choose_project()
+        started = bool(self._choose_project())
         return {
-            "ok": True,
+            "ok": started,
+            "cancelled": not started,
             "dialog": "open_project",
             "previous_project": before,
-            "loading": bool(self.analyze_worker and self.analyze_worker.isRunning()),
+            "loading": started,
+            "stop_plan": started,
         }
 
     def tool_choose_subtitle(self):
         """Open the SRT picker used by AI Film Cut."""
-        self._choose_srt()
+        selected = bool(self._choose_srt())
         return {
-            "ok": bool(self.srt_path and self.srt_path.is_file()),
+            "ok": selected,
+            "cancelled": not selected,
             "subtitle": str(self.srt_path) if self.srt_path else None,
         }
 
@@ -3003,10 +3018,19 @@ class MiniCutWindow(QMainWindow):
 
     def tool_start_film_cut(self):
         if self.film_cut_worker and self.film_cut_worker.isRunning():
-            return {"ok": True, "started": False, "already_running": True}
+            return {
+                "ok": True,
+                "started": False,
+                "already_running": True,
+                "stop_plan": True,
+            }
         self._start_film_cut()
         running = bool(self.film_cut_worker and self.film_cut_worker.isRunning())
-        return {"ok": running, "started": running}
+        return {
+            "ok": running,
+            "started": running,
+            "stop_plan": running,
+        }
 
     def tool_cancel_film_cut(self):
         running = bool(self.film_cut_worker and self.film_cut_worker.isRunning())
@@ -3124,6 +3148,7 @@ class MiniCutWindow(QMainWindow):
             "started": True,
             "mode": mode,
             "output_dir": str(out_dir),
+            "stop_plan": True,
         }
 
     def tool_cancel_export(self):

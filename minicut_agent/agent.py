@@ -205,6 +205,8 @@ class AgentPlanner:
                     raise RuntimeError(
                         f"Tool '{step['tool']}' tidak selesai: {reason}."
                     )
+                if isinstance(result, dict) and result.get("stop_plan"):
+                    break
         except Exception:
             if snapshot is not None and callable(restore_fn):
                 restore_fn(snapshot)
