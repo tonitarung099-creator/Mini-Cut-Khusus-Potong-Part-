@@ -309,8 +309,8 @@ class MiniCutWindow(QMainWindow):
         review_title.setObjectName("SectionTitle")
         layout.addWidget(review_title)
         review_note = QLabel(
-            "Smooth Proxy memakai file preview 480p lokal. Master asli tetap dipakai untuk "
-            "AI, exact-frame, dan export."
+            "Preview memakai master asli langsung. Backend utama mpv/libmpv dengan hardware decode; "
+            "Qt Multimedia hanya fallback bila mpv tidak tersedia."
         )
         review_note.setObjectName("MutedLabel")
         review_note.setWordWrap(True)
@@ -326,6 +326,9 @@ class MiniCutWindow(QMainWindow):
                 color: #e8eaf0;
                 font-family: "Segoe UI";
                 font-size: 10pt;
+            }
+            QWidget, QLabel, QCheckBox, QRadioButton, QGroupBox {
+                color: #e7e9ef;
             }
             QWidget#TopBar {
                 background: #12151c;
@@ -388,7 +391,7 @@ class MiniCutWindow(QMainWindow):
                 border: 1px solid #2a2f3b;
                 border-radius: 10px;
             }
-            QVideoWidget#VideoSurface {
+            QWidget#VideoSurface, QWidget#MpvSurface, QVideoWidget#QtVideoSurface {
                 background: #050608;
                 border: 1px solid #2b303c;
                 border-radius: 8px;
@@ -455,10 +458,34 @@ class MiniCutWindow(QMainWindow):
                 border: 0px;
                 width: 24px;
             }
+            QComboBox QAbstractItemView {
+                background: #1b1f29;
+                color: #f3f5fa;
+                border: 1px solid #3a4152;
+                selection-background-color: #7c5cff;
+                selection-color: #ffffff;
+                outline: 0;
+            }
+            QComboBox QAbstractItemView::item {
+                color: #f3f5fa;
+                background: #1b1f29;
+                min-height: 28px;
+                padding: 4px 8px;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                color: #ffffff;
+                background: #7c5cff;
+            }
+            QListView, QTreeView {
+                background: #14171e;
+                color: #e7e9ef;
+                selection-background-color: #39305f;
+                selection-color: #ffffff;
+            }
             QTableWidget {
                 background: #14171e;
                 alternate-background-color: #181c25;
-                color: #dfe2ea;
+                color: #e8ebf2;
                 border: 1px solid #2a2f3b;
                 border-radius: 7px;
                 gridline-color: #252a35;
