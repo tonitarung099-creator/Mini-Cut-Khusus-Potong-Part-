@@ -30,7 +30,7 @@ _NON_ADD_CUT_HINTS = (
 _HOUR_UNIT = r"(?:jam|hours?|hrs?|hr|h|j)(?![A-Za-z])"
 _MINUTE_UNIT = r"(?:menit|minutes?|mins?|min|mnt|m)(?![A-Za-z])"
 _SECOND_UNIT = r"(?:detik|dtik|dtk|seconds?|secs?|sec|s|d)(?![A-Za-z])"
-_JOINER = r"(?:(?:lebih|lewat|plus|dan)\\s*|\\+\\s*)?"
+_JOINER = r"(?:(?:lebih|lewat|plus|dan)\s*|\+\s*)?"
 
 
 def looks_like_manual_cut(text: str) -> bool:
@@ -107,16 +107,16 @@ def extract_manual_timestamps(text: str) -> list[ManualTimestamp]:
     # do not understand, skip the partial match and let Gemini reason about the
     # whole phrase instead of silently cutting at the wrong hour boundary.
     for m in re.finditer(
-        rf"(?<!\\d)(\\d{{1,3}}(?:[.,]\\d+)?)\\s*{_HOUR_UNIT}"
-        rf"(?:\\s*{_JOINER}(\\d{{1,3}}(?:[.,]\\d+)?)\\s*{_MINUTE_UNIT})?"
-        rf"(?:\\s*{_JOINER}(\\d{{1,3}}(?:[.,]\\d+)?)\\s*{_SECOND_UNIT})?",
+        rf"(?<!\d)(\d{{1,3}}(?:[.,]\d+)?)\s*{_HOUR_UNIT}"
+        rf"(?:\s*{_JOINER}(\d{{1,3}}(?:[.,]\d+)?)\s*{_MINUTE_UNIT})?"
+        rf"(?:\s*{_JOINER}(\d{{1,3}}(?:[.,]\d+)?)\s*{_SECOND_UNIT})?",
         raw_text,
         flags=re.I,
     ):
         if overlaps(m.start(), m.end()):
             continue
         tail = raw_text[m.end():]
-        if m.group(2) is None and m.group(3) is None and re.match(r"\\s*\\d", tail):
+        if m.group(2) is None and m.group(3) is None and re.match(r"\s*\d", tail):
             continue
         hours = _number(m.group(1))
         minutes = _number(m.group(2))
@@ -127,15 +127,15 @@ def extract_manual_timestamps(text: str) -> list[ManualTimestamp]:
     # Minutes with an optional seconds component. Accept compact aliases too,
     # while refusing a suspicious partial match followed by an unknown number.
     for m in re.finditer(
-        rf"(?<!\\d)(\\d{{1,4}}(?:[.,]\\d+)?)\\s*{_MINUTE_UNIT}"
-        rf"(?:\\s*{_JOINER}(\\d{{1,3}}(?:[.,]\\d+)?)\\s*{_SECOND_UNIT})?",
+        rf"(?<!\d)(\d{{1,4}}(?:[.,]\d+)?)\s*{_MINUTE_UNIT}"
+        rf"(?:\s*{_JOINER}(\d{{1,3}}(?:[.,]\d+)?)\s*{_SECOND_UNIT})?",
         raw_text,
         flags=re.I,
     ):
         if overlaps(m.start(), m.end()):
             continue
         tail = raw_text[m.end():]
-        if m.group(2) is None and re.match(r"\\s*\\d", tail):
+        if m.group(2) is None and re.match(r"\s*\d", tail):
             continue
         minute = _number(m.group(1))
         sec = _number(m.group(2))
@@ -145,7 +145,7 @@ def extract_manual_timestamps(text: str) -> list[ManualTimestamp]:
     # Seconds, including common abbreviations/typos such as dtk/dtik/sec/s.
     # Parsed after larger units so the same timestamp is never duplicated.
     for m in re.finditer(
-        rf"(?<!\\d)(\\d{{1,6}}(?:[.,]\\d+)?)\\s*{_SECOND_UNIT}",
+        rf"(?<!\d)(\d{{1,6}}(?:[.,]\d+)?)\s*{_SECOND_UNIT}",
         raw_text,
         flags=re.I,
     ):
