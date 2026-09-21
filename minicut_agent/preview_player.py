@@ -67,6 +67,7 @@ class PreviewPlayer(QObject):
         self._qt.positionChanged.connect(self._qt_position)
         self._qt.durationChanged.connect(self._qt_duration)
         self._qt.playbackStateChanged.connect(self._qt_state)
+        self._qt.mediaStatusChanged.connect(self._qt_media_status)
         self._qt.errorOccurred.connect(
             lambda _error, text: self.errorOccurred.emit("Qt fallback: " + str(text))
         )
@@ -81,6 +82,7 @@ class PreviewPlayer(QObject):
         self._last_playing = False
         self._pending_position = 0
         self._pending_autoplay = False
+        self._load_generation = 0
 
         self._stack.setCurrentWidget(self._qt_surface)
 
@@ -187,8 +189,16 @@ class PreviewPlayer(QObject):
         self._source = Path(path).resolve()
         self._pending_position = max(0, int(position_ms))
         self._pending_autoplay = bool(autoplay)
+        self._last_position = self._pending_position
+        self._last_duration = 0
+        self._load_generation += 1
+        generation = self._load_generation
         if self.using_mpv:
             self._load_mpv(self._source, self._pending_position, autoplay)
+            QTimer.singleShot(
+                6000,
+                lambda g=generation, p=self._source: self._verify_mpv_load(g, p),
+            )
         else:
             self._load_qt(self._source, self._pending_position, autoplay)
 
@@ -201,7 +211,7 @@ class PreviewPlayer(QObject):
             self._mpv.mute = bool(self._muted)
             if position_ms > 0:
                 QTimer.singleShot(
-                    80, lambda ms=position_ms: self.set_position(ms)
+                    120, lambda ms=position_ms: self.set_position(ms)
                 )
         except Exception as exc:
             self._activate_qt_fallback(
@@ -210,21 +220,55 @@ class PreviewPlayer(QObject):
                 autoplay=autoplay,
             )
 
+    def _verify_mpv_load(self, generation: int, path: Path) -> None:
+        if (
+            generation != self._load_generation
+            or not self.using_mpv
+            or self._source != path
+        ):
+            return
+        try:
+            duration = self._mpv.duration
+            path_value = self._mpv.path
+        except Exception as exc:
+            self._activate_qt_fallback(
+                "player mpv tidak merespons setelah membuka media: " + str(exc)
+            )
+            return
+        if duration is None or not path_value:
+            self._activate_qt_fallback(
+                "media tidak selesai terbuka di mpv dalam 6 detik"
+            )
+
     def _load_qt(self, path: Path, position_ms: int, autoplay: bool) -> None:
+        self._pending_position = max(0, int(position_ms))
+        self._pending_autoplay = bool(autoplay)
         self._stack.setCurrentWidget(self._qt_surface)
         self._qt.setSource(QUrl.fromLocalFile(str(path)))
         self._qt.setPlaybackRate(self._rate)
         self._qt_audio.setMuted(self._muted)
+        # Backup untuk backend Windows yang tidak mengirim LoadedMedia tepat waktu.
+        QTimer.singleShot(700, self._apply_qt_pending_state)
 
-        def apply_state():
-            self._qt.setPosition(position_ms)
-            self._qt.setPlaybackRate(self._rate)
-            if autoplay:
-                self._qt.play()
-            else:
-                self._qt.pause()
+    def _apply_qt_pending_state(self) -> None:
+        if self._backend != "qt" or not self._source:
+            return
+        self._qt.setPosition(max(0, int(self._pending_position)))
+        self._qt.setPlaybackRate(self._rate)
+        self._qt_audio.setMuted(self._muted)
+        if self._pending_autoplay:
+            self._qt.play()
+        else:
+            self._qt.pause()
 
-        QTimer.singleShot(180, apply_state)
+    def _qt_media_status(self, status) -> None:
+        if self._backend != "qt":
+            return
+        if status in (
+            QMediaPlayer.MediaStatus.LoadedMedia,
+            QMediaPlayer.MediaStatus.BufferedMedia,
+        ):
+            self._apply_qt_pending_state()
 
     def play(self) -> None:
         if self.using_mpv:
@@ -251,6 +295,9 @@ class PreviewPlayer(QObject):
             except Exception:
                 pass
         self._qt.stop()
+        if self._last_playing:
+            self._last_playing = False
+            self.playbackChanged.emit(False)
 
     def shutdown(self) -> None:
         self.stop()
