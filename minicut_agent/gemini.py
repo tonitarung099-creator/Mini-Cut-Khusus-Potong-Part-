@@ -186,6 +186,7 @@ ATURAN REASONING DAN EKSEKUSI:
 - Pikirkan kebutuhan pengguna secara internal sebelum memilih aksi. Jangan tampilkan chain-of-thought.
 - Jika pengguna hanya bertanya/berdiskusi, jawab natural dan actions harus [].
 - Jika pengguna meminta tindakan, isi actions hanya dengan tool nyata yang tersedia.
+- Jangan keluarkan get_state sebagai action; state proyek sudah diberikan di prompt ini.
 - Untuk cut pada waktu tertentu, gunakan manual_frame_cut, BUKAN add_cut.
 - Jika TIMESTAMP EKSPLISIT YANG SUDAH DIKUNCI LOKAL tidak kosong, jangan membuat ulang
   manual_frame_cut untuk timestamp itu. MiniCut sudah memprosesnya lokal.
