@@ -991,6 +991,7 @@ class MiniCutWindow(QMainWindow):
         self.film_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.film_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.film_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.film_table.setWordWrap(False)
         film_header = self.film_table.horizontalHeader()
         film_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         film_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -1007,6 +1008,7 @@ class MiniCutWindow(QMainWindow):
         self.film_analyze_btn.clicked.connect(self._start_film_cut)
         self.film_cancel_btn.clicked.connect(self._cancel_film_cut)
         self.film_apply_btn.clicked.connect(self._apply_film_cut)
+        self.film_table.cellDoubleClicked.connect(self._preview_film_cut_row)
         self._refresh_gemini_key_views()
         return w
 
@@ -1054,6 +1056,7 @@ class MiniCutWindow(QMainWindow):
         self.gemini_keys_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.gemini_keys_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.gemini_keys_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.gemini_keys_table.setWordWrap(False)
         api_header = self.gemini_keys_table.horizontalHeader()
         api_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         api_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -2448,9 +2451,11 @@ class MiniCutWindow(QMainWindow):
             if col == 0:
                 item.setData(Qt.ItemDataRole.UserRole, target_ms)
             if col == 1:
+                item.setData(Qt.ItemDataRole.UserRole, selected_ms)
                 item.setToolTip(
                     f"Batas AI: {semantic_time}\nIntent: {intent}\n"
-                    f"Mode: {result.get('analysis_mode') or '-'}"
+                    f"Mode: {result.get('analysis_mode') or '-'}\n"
+                    "Double-click untuk lompat ke frame ini."
                 )
             elif col == 3:
                 item.setToolTip(
@@ -2467,6 +2472,19 @@ class MiniCutWindow(QMainWindow):
             if int(x.get("selected_time_ms") or 0) > 0
         ]
         self.timeline.set_marks(preview_marks)
+
+    def _preview_film_cut_row(self, row: int, _column: int):
+        item = self.film_table.item(int(row), 1)
+        if not item:
+            return
+        cut_ms = int(item.data(Qt.ItemDataRole.UserRole) or 0)
+        if cut_ms <= 0 or not self.model.source:
+            return
+        self.player.pause()
+        self.tool_seek(cut_ms)
+        self.status.setText(
+            f"Preview cut · {clock_text(cut_ms)} · double-click hasil lain untuk membandingkan."
+        )
 
     def _film_cut_usage(self, usage: dict):
         requests = int(usage.get("requests") or 0)
