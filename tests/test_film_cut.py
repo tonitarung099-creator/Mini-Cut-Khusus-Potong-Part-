@@ -6,6 +6,7 @@ from unittest.mock import patch
 from minicut_agent.candidates import (
     LocalCandidate, proximity_shortlist, rank_candidates, target_times
 )
+from minicut_agent.core import ProjectModel
 from minicut_agent.frame_resolver import resolve_requested_frame, resolve_semantic_frame
 from minicut_agent.gemini import _bounded_offset, _needs_deep_check
 from minicut_agent.manual_commands import extract_manual_timestamps, looks_like_manual_cut
@@ -110,6 +111,15 @@ class ManualCommandTests(unittest.TestCase):
         self.assertTrue(result["frame_verified"])
         self.assertEqual(result["time_ms"], 932_000)
         self.assertEqual(result["frame_delta_ms"], -13)
+
+
+    def test_frame_cut_does_not_snap_to_keyframe(self):
+        model = ProjectModel()
+        model.duration_ms = 2_000_000
+        model.keyframes = [900_000, 940_000]
+        cut = model.add_frame_cut(932_000, 932_013)
+        self.assertEqual(cut.requested_ms, 932_000)
+        self.assertEqual(cut.actual_ms, 932_013)
 
 
 class SemanticCutTests(unittest.TestCase):
