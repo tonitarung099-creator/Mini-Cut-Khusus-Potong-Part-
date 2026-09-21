@@ -51,12 +51,18 @@ class GeminiClient:
         if not self.api_key:
             raise ValueError("Gemini API key belum diisi.")
 
-    def _post(self, payload: dict[str, Any], timeout: int = 90) -> dict[str, Any]:
+    def _post(
+        self,
+        payload: dict[str, Any],
+        timeout: int = 90,
+        max_attempts: int = 3,
+    ) -> dict[str, Any]:
         url = f"{API_ROOT}/models/{self.model}:generateContent"
         body_bytes = json.dumps(payload).encode("utf-8")
 
         last_error: Exception | None = None
-        for attempt in range(3):
+        max_attempts = max(1, min(int(max_attempts), 3))
+        for attempt in range(max_attempts):
             req = urllib.request.Request(
                 url,
                 data=body_bytes,
@@ -80,7 +86,7 @@ class GeminiClient:
 
                 # Retry/backoff hanya pada limit sementara / service unavailable.
                 # Tidak berpindah API key secara otomatis.
-                if exc.code not in (429, 503) or attempt >= 2:
+                if exc.code not in (429, 503) or attempt >= max_attempts - 1:
                     raise last_error from exc
 
                 retry_after = 0.0
@@ -88,7 +94,7 @@ class GeminiClient:
                     retry_after = float(exc.headers.get("Retry-After") or 0)
                 except Exception:
                     retry_after = 0.0
-                fallback = (4.0, 10.0)[attempt]
+                fallback = (4.0, 10.0)[min(attempt, 1)]
                 time.sleep(max(fallback, min(60.0, retry_after)))
             except urllib.error.URLError as exc:
                 raise RuntimeError(
@@ -192,7 +198,9 @@ Kembalikan HANYA JSON:
                 "responseMimeType": "application/json",
             },
         }
-        data = self._post(payload, timeout=60)
+        # Chat harus responsif. Gagal cepat lebih baik daripada menahan UI lama;
+        # timestamp manual tetap diproses lokal tanpa menunggu Gemini.
+        data = self._post(payload, timeout=30, max_attempts=1)
         raw = _response_text(data)
         try:
             result = json.loads(raw)
