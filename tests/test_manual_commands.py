@@ -38,6 +38,14 @@ class ManualCommandTimestampTests(unittest.TestCase):
     def test_remove_cut_is_not_add_cut_intent(self):
         self.assertFalse(looks_like_manual_cut("hapus cut di 1 jam lebih 2 menit"))
 
+    def test_interval_request_is_not_hijacked_as_one_manual_cut(self):
+        self.assertFalse(looks_like_manual_cut("potong tiap 1 jam 12 detik"))
+        self.assertFalse(looks_like_manual_cut("setiap part 1 jam 12 detik"))
+        self.assertFalse(looks_like_manual_cut("potong berkala interval 62 menit"))
+
+    def test_plain_arbitrary_timestamp_still_uses_manual_cut(self):
+        self.assertTrue(looks_like_manual_cut("potong 1jam 12dtik"))
+
     def test_compact_typo_seconds_are_not_lost(self):
         self.assertEqual(self.times("potong 1jam 12dtik"), [3_612_000])
 

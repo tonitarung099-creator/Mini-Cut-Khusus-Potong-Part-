@@ -20,6 +20,10 @@ _CUT_WORDS = ("potong", "cut", "pecah", "split", "titik potong", "belah")
 _NON_ADD_CUT_HINTS = (
     "hapus", "remove", "delete", "undo", "urungkan", "batalkan",
     "cek cut", "lihat cut", "berapa cut", "apakah ada cut",
+    # Interval/duration requests must be reasoned as a repeated split, not
+    # hijacked by the exact-timestamp frame-lock path.
+    "tiap ", "setiap ", "berkala", "interval ",
+    "durasi part", "panjang part", "masing-masing part", "setiap part",
 )
 
 

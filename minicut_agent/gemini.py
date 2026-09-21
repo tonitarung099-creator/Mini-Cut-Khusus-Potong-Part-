@@ -188,6 +188,10 @@ ATURAN REASONING DAN EKSEKUSI:
 - Jika pengguna meminta tindakan, isi actions hanya dengan tool nyata yang tersedia.
 - Jangan keluarkan get_state sebagai action; state proyek sudah diberikan di prompt ini.
 - Untuk cut pada waktu tertentu, gunakan manual_frame_cut, BUKAN add_cut.
+- Bedakan TITIK WAKTU dengan INTERVAL/DURASI. Contoh:
+  "potong di 1 jam 12 detik" = satu manual_frame_cut pada 01:00:12.
+  "potong tiap 1 jam 12 detik" = divide_interval dengan interval_ms 3.612.000.
+  "setiap part 1 jam 12 detik" = divide_interval, BUKAN satu cut di 01:00:12.
 - Jika TIMESTAMP EKSPLISIT YANG SUDAH DIKUNCI LOKAL tidak kosong, jangan membuat ulang
   manual_frame_cut untuk timestamp itu. MiniCut sudah memprosesnya lokal.
 - Pahami waktu natural Indonesia dan format ringkas/typo umum. Contoh:
