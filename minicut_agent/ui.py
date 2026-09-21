@@ -27,9 +27,11 @@ from .core import (
 from .gemini import DEFAULT_MODEL
 from .frame_resolver import probe_frame_timestamps
 from .gemini_keys import GeminiKeyStore, MAX_GEMINI_KEYS
+from .manual_commands import extract_manual_timestamps, looks_like_manual_cut
 from .workers import (
     AgentWorker, AnalyzeWorker, ExportWorker, FilmCutWorker,
-    GeminiBatchTestWorker, GeminiTestWorker, ProxyWorker
+    GeminiBatchTestWorker, GeminiChatWorker, GeminiTestWorker,
+    ManualFrameCutWorker, ProxyWorker
 )
 
 
@@ -72,6 +74,8 @@ class MiniCutWindow(QMainWindow):
         self.agent_worker: AgentWorker | None = None
         self.gemini_test_worker: GeminiTestWorker | None = None
         self.gemini_batch_worker: GeminiBatchTestWorker | None = None
+        self.gemini_chat_worker: GeminiChatWorker | None = None
+        self.manual_cut_worker: ManualFrameCutWorker | None = None
         self.film_cut_worker: FilmCutWorker | None = None
         self.proxy_worker: ProxyWorker | None = None
         self.preview_proxy: Path | None = None
@@ -87,6 +91,10 @@ class MiniCutWindow(QMainWindow):
         self.srt_path: Path | None = None
         self.gemini_keys = GeminiKeyStore()
         self._gemini_test_key_id: str | None = None
+        self._gemini_chat_key_id: str | None = None
+        self._gemini_chat_model: str = DEFAULT_MODEL
+        self._gemini_chat_history_data: list[dict[str, str]] = []
+        self._gemini_chat_pending_manual: list[dict] = []
         self._film_active_key_id: str | None = None
         self._film_active_model: str = DEFAULT_MODEL
         self._film_usage_seen_requests = 0
@@ -238,6 +246,7 @@ class MiniCutWindow(QMainWindow):
         self.tabs.addTab(self._parts_tab(), "Timeline Part")
         self.tabs.addTab(self._agent_tab(), "AI Agent")
         self.tabs.addTab(self._film_cut_tab(), "AI Film Cut")
+        self.tabs.addTab(self._gemini_chat_tab(), "Gemini Chat")
         self.tabs.addTab(self._gemini_keys_tab(), "Gemini API")
         self.tabs.addTab(self._log_tab(), "Log")
         splitter.addWidget(self.tabs)
