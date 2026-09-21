@@ -2483,9 +2483,22 @@ class MiniCutWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Pilih subtitle SRT", "", "Subtitle (*.srt)")
         if not path:
             return False
-        self.srt_path = Path(path).resolve()
+        new_path = Path(path).resolve()
+        changed = self.srt_path != new_path
+        self.srt_path = new_path
         self.srt_edit.setText(str(self.srt_path))
-        self.film_status_label.setText("SRT siap. MiniCut akan menggunakannya untuk verifikasi dialog.")
+        if changed:
+            self.film_cut_results = []
+            if hasattr(self, "film_table"):
+                self.film_table.setRowCount(0)
+            if hasattr(self, "film_apply_btn"):
+                self.film_apply_btn.setEnabled(False)
+            if hasattr(self, "film_preview_btn"):
+                self.film_preview_btn.setEnabled(False)
+        self.film_status_label.setText(
+            "SRT siap. MiniCut akan menggunakannya untuk verifikasi dialog."
+            + (" Hasil AI lama dibersihkan." if changed else "")
+        )
         return True
 
     def _test_gemini(self):
