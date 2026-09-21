@@ -32,6 +32,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      - name: Prepare libmpv runtime
+        shell: pwsh
+        run: |
+          ./scripts/fetch_mpv.ps1
+
       - name: Compile and import checks
         shell: pwsh
         run: |
@@ -50,7 +55,11 @@ jobs:
       - name: Build MiniCut Studio Agent
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --windowed --name "MiniCut Studio Agent" --hidden-import PySide6.QtMultimedia --hidden-import PySide6.QtMultimediaWidgets --collect-data tzdata main.py
+          pyinstaller --noconfirm --clean --windowed --name "MiniCut Studio Agent" --hidden-import PySide6.QtMultimedia --hidden-import PySide6.QtMultimediaWidgets --hidden-import mpv --collect-data tzdata main.py
+          Get-ChildItem "mpv-runtime" -Recurse -File -Filter "*.dll" | ForEach-Object {
+            Copy-Item $_.FullName "dist/MiniCut Studio Agent/" -Force
+          }
+          Copy-Item THIRD_PARTY_MPV.txt "dist/MiniCut Studio Agent/THIRD_PARTY_MPV.txt"
 
       - name: Build MCP companion
         shell: pwsh
