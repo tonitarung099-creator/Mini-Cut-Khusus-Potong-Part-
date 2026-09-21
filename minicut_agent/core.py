@@ -207,6 +207,26 @@ class ProjectModel:
         self.dirty = True
         return cut
 
+    def add_frame_cut(self, requested_ms: int, actual_ms: int) -> CutPoint:
+        """Add a cut at an already verified real frame PTS.
+
+        This is used for SmartCut/manual frame-accurate cuts and intentionally
+        does not snap to a keyframe.
+        """
+        requested = self.clamp(requested_ms)
+        actual = self.clamp(actual_ms)
+        if requested <= 0 or requested >= self.duration_ms:
+            raise ValueError("Cut manual harus berada di antara awal dan akhir video.")
+        if actual <= 0 or actual >= self.duration_ms:
+            raise ValueError("Frame cut berada di luar durasi video.")
+        if any(abs(c.actual_ms - actual) < 2 for c in self.cuts):
+            raise ValueError("Cut pada frame tersebut sudah ada.")
+        cut = CutPoint(requested, actual)
+        self.cuts.append(cut)
+        self._normalize()
+        self.dirty = True
+        return cut
+
     def remove_cut(self, index: int) -> CutPoint:
         if index < 0 or index >= len(self.cuts):
             raise IndexError("Index cut tidak valid.")
