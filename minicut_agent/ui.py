@@ -1556,13 +1556,12 @@ class MiniCutWindow(QMainWindow):
                     "ready": "🟢 SIAP",
                     "limited": "🔴 LIMIT",
                     "error": "🟠 ERROR",
-                    "unknown": "⚪ BELUM DICEK",
+                    "unknown": "⚪ BELUM",
                 }.get(status, status.upper())
+                api_name = item.name + (f" · {item.project}" if item.project else "")
                 values = [
                     "●" if item.id == active_id else "",
-                    item.name,
-                    item.project or "-",
-                    item.masked_key,
+                    api_name,
                     status_text,
                     f"{snap['rpm_remaining']}/{snap['rpm_limit']}",
                     f"{snap['tpm_remaining']:,}/{snap['tpm_limit']:,}",
@@ -1572,6 +1571,14 @@ class MiniCutWindow(QMainWindow):
                     cell = QTableWidgetItem(str(value))
                     if col == 0:
                         cell.setData(Qt.ItemDataRole.UserRole, item.id)
+                    if col == 1:
+                        cell.setToolTip(
+                            f"Nama: {item.name}\n"
+                            f"Project: {item.project or '-'}\n"
+                            f"Key: {item.masked_key}"
+                        )
+                    elif col == 2:
+                        cell.setToolTip(str(snap.get("last_error") or status_text))
                     self.gemini_keys_table.setItem(row, col, cell)
 
         self._refresh_active_quota_display()
@@ -2377,8 +2384,17 @@ class MiniCutWindow(QMainWindow):
             self.film_cut_results[existing] = dict(result)
         self.film_cut_results.sort(key=lambda x: int(x.get("target_ms") or 0))
 
-        row = self.film_table.rowCount()
-        self.film_table.insertRow(row)
+        # Update row bila target yang sama dikirim ulang (resume/retry), jangan duplikat.
+        row = -1
+        for i in range(self.film_table.rowCount()):
+            item = self.film_table.item(i, 0)
+            if item and int(item.data(Qt.ItemDataRole.UserRole) or -1) == target_ms:
+                row = i
+                break
+        if row < 0:
+            row = self.film_table.rowCount()
+            self.film_table.insertRow(row)
+
         confidence = float(result.get("confidence") or 0)
         decision = str(result.get("decision") or result.get("broad_decision") or "").upper()
         selected_ms = int(result.get("selected_time_ms") or 0)
@@ -2392,9 +2408,9 @@ class MiniCutWindow(QMainWindow):
             frame_time = "—"
             intent = "scene_continues"
             if decision == "SKIPPED_AFTER_PREVIOUS_CUT":
-                status_text = "SKIP · GRID TERLEWATI"
+                status_text = "SKIP · GRID"
             else:
-                status_text = "NO CUT · SCENE LANJUT"
+                status_text = "NO CUT"
         else:
             semantic_time = str(
                 result.get("semantic_preferred_time")
@@ -2405,7 +2421,7 @@ class MiniCutWindow(QMainWindow):
                 result.get("selected_time")
                 or clock_text(selected_ms)
             )
-            intent = str(result.get("cut_intent") or "semantic_boundary")
+            intent = str(result.get("cut_intent") or "scene_transition")
             frame_ok = bool(result.get("frame_verified"))
             if review:
                 status_text = "REVIEW"
@@ -2416,18 +2432,34 @@ class MiniCutWindow(QMainWindow):
             else:
                 status_text = "SCENE · OK"
             if not frame_ok:
-                status_text += " · NO FRAME LOCK"
+                status_text += " · NO LOCK"
+
+        target_text = str(result.get("target") or clock_text(target_ms))
+        reason = str(result.get("reason") or "")
         values = [
-            str(result.get("target") or clock_text(target_ms)),
-            semantic_time,
+            target_text,
             frame_time,
-            intent,
             f"{confidence:.0%}",
             status_text,
-            str(result.get("reason") or ""),
+            reason,
         ]
         for col, value in enumerate(values):
-            self.film_table.setItem(row, col, QTableWidgetItem(value))
+            item = QTableWidgetItem(value)
+            if col == 0:
+                item.setData(Qt.ItemDataRole.UserRole, target_ms)
+            if col == 1:
+                item.setToolTip(
+                    f"Batas AI: {semantic_time}\nIntent: {intent}\n"
+                    f"Mode: {result.get('analysis_mode') or '-'}"
+                )
+            elif col == 3:
+                item.setToolTip(
+                    f"Decision: {decision or '-'}\n"
+                    f"Deep Check: {'ya' if result.get('deep_check_used') else 'tidak'}"
+                )
+            elif col == 4:
+                item.setToolTip(reason)
+            self.film_table.setItem(row, col, item)
 
         preview_marks = [
             int(x.get("selected_time_ms") or 0)
