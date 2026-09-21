@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QKeySequence, QPainter, QPalette, QPen, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-    QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
+    QFormLayout, QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
     QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox, QSplitter,
     QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget
 )
@@ -153,6 +153,7 @@ class MiniCutWindow(QMainWindow):
         self.export_btn = QPushButton("Ekspor Semua Part")
         self.export_btn.setObjectName("PrimaryButton")
         self.export_mode = QComboBox()
+        self.export_mode.setMinimumWidth(185)
         self.export_mode.addItem("SmartCut · Frame Accurate", "smartcut")
         self.export_mode.addItem("Fast Copy · Keyframe", "fast")
 
@@ -230,12 +231,18 @@ class MiniCutWindow(QMainWindow):
         # Semua alat kembali berada di panel kanan seperti versi awal.
         self.tabs = QTabWidget()
         self.tabs.setObjectName("InspectorTabs")
-        self.tabs.addTab(self._parts_tab(), "Timeline Part")
-        self.tabs.addTab(self._agent_tab(), "AI Agent")
-        self.tabs.addTab(self._film_cut_tab(), "AI Film Cut")
-        self.tabs.addTab(self._gemini_chat_tab(), "Gemini Chat")
-        self.tabs.addTab(self._gemini_keys_tab(), "Gemini API")
-        self.tabs.addTab(self._log_tab(), "Log")
+        self.tabs.setMinimumWidth(410)
+        tab_specs = [
+            (self._parts_tab(), "Timeline", "Timeline Part"),
+            (self._agent_tab(), "Agent", "AI Agent"),
+            (self._film_cut_tab(), "Film Cut", "AI Film Cut otomatis"),
+            (self._gemini_chat_tab(), "Chat", "Gemini Chat / cut manual"),
+            (self._gemini_keys_tab(), "API", "Gemini API Manager"),
+            (self._log_tab(), "Log", "Log aplikasi"),
+        ]
+        for page, title, tip in tab_specs:
+            index = self.tabs.addTab(page, title)
+            self.tabs.setTabToolTip(index, tip)
         splitter.addWidget(self.tabs)
         splitter.setSizes([820, 460])
         splitter.setStretchFactor(0, 3)
@@ -335,6 +342,11 @@ class MiniCutWindow(QMainWindow):
         palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
         palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#20242e"))
         palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#ffffff"))
+        palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#7f8798"))
+        palette.setColor(QPalette.ColorRole.BrightText, QColor("#ffffff"))
+        palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor("#686f7d"))
+        palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor("#686f7d"))
+        palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor("#686f7d"))
         self.setPalette(palette)
         QApplication.instance().setPalette(palette)
 
@@ -420,8 +432,8 @@ class MiniCutWindow(QMainWindow):
             }
             QTabBar::tab {
                 background: #151820;
-                color: #8e95a6;
-                padding: 10px 12px;
+                color: #aab0bf;
+                padding: 10px 9px;
                 border: 0px;
                 border-bottom: 2px solid transparent;
             }
@@ -494,6 +506,24 @@ class MiniCutWindow(QMainWindow):
                 color: #ffffff;
                 background: #7c5cff;
             }
+            QComboBox:disabled, QLineEdit:disabled, QSpinBox:disabled, QPlainTextEdit:disabled {
+                color: #686f7d;
+                background: #171a22;
+                border-color: #242a35;
+            }
+            QDialog, QMessageBox {
+                background: #11151d;
+                color: #e8ebf2;
+            }
+            QMenu {
+                background: #1b1f29;
+                color: #f3f5fa;
+                border: 1px solid #3a4152;
+            }
+            QMenu::item:selected {
+                background: #7c5cff;
+                color: #ffffff;
+            }
             QListView, QTreeView {
                 background: #14171e;
                 color: #e7e9ef;
@@ -561,6 +591,42 @@ class MiniCutWindow(QMainWindow):
             }
             QSplitter::handle:vertical {
                 height: 2px;
+            }
+            QScrollBar:vertical {
+                background: #12161e;
+                width: 10px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #3a4150;
+                min-height: 28px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #50596b;
+            }
+            QScrollBar:add-line:vertical, QScrollBar:sub-line:vertical,
+            QScrollBar:add-page:vertical, QScrollBar:sub-page:vertical {
+                background: transparent;
+                height: 0px;
+            }
+            QScrollBar:horizontal {
+                background: #12161e;
+                height: 10px;
+                margin: 0px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #3a4150;
+                min-width: 28px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #50596b;
+            }
+            QScrollBar:add-line:horizontal, QScrollBar:sub-line:horizontal,
+            QScrollBar:add-page:horizontal, QScrollBar:sub-page:horizontal {
+                background: transparent;
+                width: 0px;
             }
             QToolTip {
                 background: #20242e;
@@ -1217,10 +1283,15 @@ class MiniCutWindow(QMainWindow):
 
     # ---------- player ----------
     def _position_changed(self, ms: int):
+        if self.timeline.isSliderDown():
+            # Saat user sedang drag, jangan biarkan update player/keyframe
+            # menimpa timecode di bawah kursor.
+            return
         self.model.playhead_ms = int(ms)
-        if not self.timeline.isSliderDown():
-            self.timeline.setValue(int(ms))
-        self.position_label.setText(f"{clock_text(ms)} / {clock_text(self.model.duration_ms)}")
+        self.timeline.setValue(int(ms))
+        self.position_label.setText(
+            f"{clock_text(ms)} / {clock_text(self.model.duration_ms)}"
+        )
         self.bridge_state = self.model.state()
 
     def _duration_changed(self, ms: int):
@@ -1500,7 +1571,7 @@ class MiniCutWindow(QMainWindow):
 
     def _open_gemini_manager(self):
         for i in range(self.tabs.count()):
-            if self.tabs.tabText(i) == "Gemini API":
+            if self.tabs.tabText(i) == "API":
                 self.tabs.setCurrentIndex(i)
                 break
 
