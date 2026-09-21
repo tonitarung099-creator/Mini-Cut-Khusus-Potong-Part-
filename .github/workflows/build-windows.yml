@@ -105,6 +105,19 @@ jobs:
             throw "MiniCut self-test failed with exit code $($p.ExitCode)"
           }
 
+      - name: Verify packaged mpv backend
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "dist/MiniCut Studio Agent/MiniCut Studio Agent.exe" -ArgumentList "--self-test-player" -PassThru
+          if (-not $p.WaitForExit(30000)) {
+            $p.Kill()
+            throw "MiniCut mpv backend self-test timeout"
+          }
+          $p.Refresh()
+          if ($p.ExitCode -ne 0) {
+            throw "MiniCut packaged mpv backend unavailable; exit code $($p.ExitCode)"
+          }
+
       - name: Package ZIP
         shell: pwsh
         run: |
