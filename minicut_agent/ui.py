@@ -65,7 +65,7 @@ class MiniCutWindow(QMainWindow):
         self.model = ProjectModel()
         self.registry = ToolRegistry(self)
         self.planner = AgentPlanner(self.registry)
-        self.undo_stack: list[list[CutPoint]] = []
+        self.undo_stack: list[dict] = []
         self.pending_plan: dict | None = None
         self.pending_load: tuple[Path, dict | None, Path | None] | None = None
         self.analyze_worker: AnalyzeWorker | None = None
@@ -1454,16 +1454,16 @@ class MiniCutWindow(QMainWindow):
         self.tool_seek(current + direction * step)
 
     # ---------- manual operations ----------
-    def _snapshot(self) -> list[CutPoint]:
-        return [CutPoint(c.requested_ms, c.actual_ms) for c in self.model.cuts]
-
-    def tool_transaction_snapshot(self) -> dict:
+    def _snapshot(self) -> dict:
         return {
-            "cuts": self._snapshot(),
+            "cuts": [
+                CutPoint(c.requested_ms, c.actual_ms)
+                for c in self.model.cuts
+            ],
             "dirty": bool(self.model.dirty),
         }
 
-    def tool_transaction_restore(self, snapshot: dict) -> None:
+    def _restore_snapshot(self, snapshot: dict) -> None:
         cuts = snapshot.get("cuts") or []
         self.model.cuts = [
             CutPoint(c.requested_ms, c.actual_ms)
@@ -1472,6 +1472,12 @@ class MiniCutWindow(QMainWindow):
         self.model._normalize()
         self.model.dirty = bool(snapshot.get("dirty", False))
         self._refresh()
+
+    def tool_transaction_snapshot(self) -> dict:
+        return self._snapshot()
+
+    def tool_transaction_restore(self, snapshot: dict) -> None:
+        self._restore_snapshot(snapshot)
 
     def _manual_mutation(self, tool: str, args: dict):
         try:
@@ -2412,7 +2418,6 @@ class MiniCutWindow(QMainWindow):
     def _manual_cut_ready(self, resolved: list):
         self.manual_cut_worker = None
         before = self._snapshot()
-        dirty_before = bool(self.model.dirty)
         added = []
         skipped = []
         try:
@@ -2427,10 +2432,7 @@ class MiniCutWindow(QMainWindow):
                 )
                 added.append((cut, item))
         except Exception as exc:
-            self.model.cuts = before
-            self.model._normalize()
-            self.model.dirty = dirty_before
-            self._refresh()
+            self._restore_snapshot(before)
             self._append_gemini_chat(
                 "system",
                 "Cut manual dibatalkan karena frame lock gagal: " + str(exc),
@@ -3183,10 +3185,13 @@ class MiniCutWindow(QMainWindow):
     def tool_undo(self):
         if not self.undo_stack:
             return {"ok": False, "error": "Belum ada perubahan yang bisa di-undo."}
-        self.model.cuts = self.undo_stack.pop()
-        self.model.dirty = True
-        self._refresh()
-        return {"ok": True, "parts": len(self.model.cuts) + 1}
+        snapshot = self.undo_stack.pop()
+        self._restore_snapshot(snapshot)
+        return {
+            "ok": True,
+            "parts": len(self.model.cuts) + 1,
+            "dirty": bool(self.model.dirty),
+        }
 
     def ui_layout_issues(self) -> list[str]:
         """Return obvious overlap/clipping problems at the current window size.
