@@ -76,11 +76,7 @@ class MiniCutWindow(QMainWindow):
         self.gemini_chat_worker: GeminiChatWorker | None = None
         self.manual_cut_worker: ManualFrameCutWorker | None = None
         self.film_cut_worker: FilmCutWorker | None = None
-        self.proxy_worker: ProxyWorker | None = None
-        self.preview_proxy: Path | None = None
         self._player_media_path: Path | None = None
-        self._pending_player_position: int | None = None
-        self._pending_player_resume = False
         self._frame_pts_cache: list[int] = []
         self._frame_pts_cache_start = 0
         self._frame_pts_cache_end = 0
@@ -108,9 +104,7 @@ class MiniCutWindow(QMainWindow):
             manifest_provider=self.registry.manifest,
         )
 
-        self.audio = QAudioOutput(self)
-        self.player = QMediaPlayer(self)
-        self.player.setAudioOutput(self.audio)
+        self.player = PreviewPlayer(self)
 
         self._build_ui()
         self._apply_modern_theme()
