@@ -126,6 +126,84 @@ class GeminiClient:
             "usage": self.usage.__dict__.copy(),
         }
 
+    def chat_command(
+        self,
+        user_text: str,
+        state: dict[str, Any],
+        locked_timestamps: list[dict[str, Any]] | None = None,
+        history: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        """Human-style Gemini chat for MiniCut.
+
+        Explicit timestamps are supplied as LOCKED data by the local parser.
+        Gemini may explain them but must never rewrite or move them.
+        """
+        locked = list(locked_timestamps or [])
+        history = list(history or [])[-8:]
+        project = {
+            "source": state.get("source"),
+            "duration": state.get("duration"),
+            "fps": state.get("fps"),
+            "parts": state.get("parts"),
+            "cuts": state.get("cuts"),
+        }
+        prompt = f"""
+Kamu adalah Gemini Chat di aplikasi MiniCut Studio.
+Berkomunikasilah natural dalam Bahasa Indonesia, singkat dan jelas.
+
+KONDISI PROYEK:
+{json.dumps(project, ensure_ascii=False)}
+
+TIMESTAMP EKSPLISIT YANG SUDAH DIKUNCI LOKAL:
+{json.dumps(locked, ensure_ascii=False)}
+
+ATURAN:
+- Jika daftar timestamp terkunci tidak kosong dan pengguna meminta potong/cut/split,
+  jangan mengubah angkanya, jangan mencari scene lain, dan jangan membuat timestamp tambahan.
+- Jelaskan bahwa MiniCut akan menempelkan timestamp tersebut ke frame master nyata terdekat.
+- Snap frame hanya beberapa milidetik sesuai PTS sumber, bukan menggeser ke detik/scene lain.
+- Jika pengguna hanya mengobrol atau bertanya, jawab secara natural.
+- Jangan mengklaim tindakan sudah berhasil bila aplikasi belum memberi hasil eksekusi.
+- Jangan meminta API key di chat; gunakan API aktif aplikasi.
+
+Kembalikan HANYA JSON:
+{{
+  "reply": "jawaban natural untuk pengguna",
+  "intent": "manual_cut" atau "chat"
+}}
+""".strip()
+
+        contents: list[dict[str, Any]] = []
+        for item in history:
+            role = "model" if item.get("role") == "assistant" else "user"
+            contents.append({
+                "role": role,
+                "parts": [{"text": str(item.get("text") or "")[:4000]}],
+            })
+        contents.append({
+            "role": "user",
+            "parts": [{"text": prompt + "\n\nPESAN PENGGUNA:\n" + str(user_text)}],
+        })
+        payload = {
+            "contents": contents,
+            "generationConfig": {
+                "temperature": 0.25,
+                "maxOutputTokens": 500,
+                "responseMimeType": "application/json",
+            },
+        }
+        data = self._post(payload, timeout=60)
+        raw = _response_text(data)
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Gemini Chat tidak mengembalikan JSON valid.") from exc
+        result["reply"] = str(result.get("reply") or "").strip()
+        result["intent"] = str(result.get("intent") or "chat").strip().lower()
+        result["usage"] = self.usage.__dict__.copy()
+        result["model"] = self.model
+        return result
+
     def analyze_scene_window(
         self,
         ffmpeg: str,
