@@ -6,10 +6,8 @@ import queue
 from dataclasses import asdict
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QKeySequence, QPainter, QPen, QShortcut
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
@@ -22,16 +20,17 @@ from .agent import AgentPlanner, MUTATING_TOOLS, ToolRegistry
 from .bridge import BridgeCall, LocalBridge
 from .core import (
     CutPoint, ProjectModel, SUPPORTED_VIDEO, clock_text, find_tool,
-    load_project_file, parse_time_ms, preview_proxy_path
+    load_project_file, parse_time_ms
 )
 from .gemini import DEFAULT_MODEL
 from .frame_resolver import probe_frame_timestamps
 from .gemini_keys import GeminiKeyStore, MAX_GEMINI_KEYS
 from .manual_commands import extract_manual_timestamps, looks_like_manual_cut
+from .preview_player import PreviewPlayer
 from .workers import (
     AgentWorker, AnalyzeWorker, ExportWorker, FilmCutWorker,
     GeminiBatchTestWorker, GeminiChatWorker, GeminiTestWorker,
-    ManualFrameCutWorker, ProxyWorker
+    ManualFrameCutWorker
 )
 
 
