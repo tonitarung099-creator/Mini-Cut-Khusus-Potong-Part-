@@ -725,7 +725,7 @@ class MiniCutWindow(QMainWindow):
         self.gemini_chat_input = QPlainTextEdit()
         self.gemini_chat_input.setMaximumHeight(105)
         self.gemini_chat_input.setPlaceholderText(
-            "Tulis seperti manusia…\n"
+            "Tulis seperti manusia… (Ctrl+Enter untuk kirim)\n"
             "Contoh: Potong di menit 15.32, 31.12, 45.10, 59.34"
         )
         layout.addWidget(self.gemini_chat_input)
@@ -2444,7 +2444,11 @@ class MiniCutWindow(QMainWindow):
         )
         review_count = sum(
             1 for x in self.film_cut_results
-            if bool(x.get("needs_review")) or float(x.get("confidence") or 0) < 0.55
+            if int(x.get("selected_time_ms") or 0) > 0
+            and (
+                bool(x.get("needs_review"))
+                or float(x.get("confidence") or 0) < 0.55
+            )
         )
         valid_cut_count = sum(
             1 for x in self.film_cut_results
@@ -2515,7 +2519,11 @@ class MiniCutWindow(QMainWindow):
             return
         review_count = sum(
             1 for x in self.film_cut_results
-            if bool(x.get("needs_review")) or float(x.get("confidence") or 0) < 0.55
+            if int(x.get("selected_time_ms") or 0) > 0
+            and (
+                bool(x.get("needs_review"))
+                or float(x.get("confidence") or 0) < 0.55
+            )
         )
         if review_count:
             answer = QMessageBox.question(
@@ -2782,29 +2790,96 @@ class MiniCutWindow(QMainWindow):
             self._begin_load(path)
 
     def closeEvent(self, event):
+        # Jangan hancurkan QThread yang masih aktif. Network worker tidak dipaksa
+        # terminate karena itu lebih berisiko daripada menunggu request selesai.
+        blocking = []
+        for name, worker in (
+            ("Analisis video", self.analyze_worker),
+            ("AI Agent", self.agent_worker),
+            ("Tes Gemini", self.gemini_test_worker),
+            ("Gemini Chat", self.gemini_chat_worker),
+            ("Frame-lock manual", self.manual_cut_worker),
+        ):
+            if worker and worker.isRunning():
+                blocking.append(name)
+        if blocking:
+            QMessageBox.information(
+                self,
+                APP_TITLE,
+                "Tunggu proses berikut selesai sebelum keluar:\n" + " · ".join(blocking),
+            )
+            event.ignore()
+            return
+
         if self.gemini_batch_worker and self.gemini_batch_worker.isRunning():
             self.gemini_batch_worker.cancel()
             self.gemini_batch_worker.wait(5000)
+            if self.gemini_batch_worker.isRunning():
+                QMessageBox.information(
+                    self,
+                    APP_TITLE,
+                    "Cek Semua API sedang dihentikan. Coba tutup lagi beberapa saat.",
+                )
+                event.ignore()
+                return
+
         if self.proxy_worker and self.proxy_worker.isRunning():
             self.proxy_worker.cancel()
             self.proxy_worker.wait(5000)
+            if self.proxy_worker.isRunning():
+                QMessageBox.information(
+                    self,
+                    APP_TITLE,
+                    "Proxy masih dihentikan. Coba tutup lagi beberapa saat.",
+                )
+                event.ignore()
+                return
+
         if self.film_cut_worker and self.film_cut_worker.isRunning():
-            answer = QMessageBox.question(self, APP_TITLE, "AI Film Cut masih berjalan. Tetap keluar?")
+            answer = QMessageBox.question(
+                self, APP_TITLE, "AI Film Cut masih berjalan. Batalkan proses?"
+            )
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
             self.film_cut_worker.cancel()
+            self.film_cut_worker.wait(5000)
+            if self.film_cut_worker.isRunning():
+                QMessageBox.information(
+                    self,
+                    APP_TITLE,
+                    "AI Film Cut sedang menunggu request aktif selesai. "
+                    "Coba tutup lagi beberapa saat.",
+                )
+                event.ignore()
+                return
+
         if self.export_worker and self.export_worker.isRunning():
-            answer = QMessageBox.question(self, APP_TITLE, "Ekspor masih berjalan. Tetap keluar?")
+            answer = QMessageBox.question(
+                self, APP_TITLE, "Ekspor masih berjalan. Batalkan ekspor?"
+            )
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
             self.export_worker.cancel()
+            self.export_worker.wait(5000)
+            if self.export_worker.isRunning():
+                QMessageBox.information(
+                    self,
+                    APP_TITLE,
+                    "Ekspor sedang dihentikan. Coba tutup lagi beberapa saat.",
+                )
+                event.ignore()
+                return
+
         if self.model.dirty:
-            answer = QMessageBox.question(self, APP_TITLE, "Perubahan cut belum disimpan. Tetap keluar?")
+            answer = QMessageBox.question(
+                self, APP_TITLE, "Perubahan cut belum disimpan. Tetap keluar?"
+            )
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
+
         self.bridge.stop()
         self.player.stop()
         event.accept()
