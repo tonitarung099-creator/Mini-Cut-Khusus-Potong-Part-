@@ -98,6 +98,20 @@ class ManualCommandTests(unittest.TestCase):
         self.assertEqual(items[0].time_ms, (3600 + 15 * 60 + 32) * 1000)
         self.assertEqual(items[1].time_ms, (20 * 60 + 7) * 1000)
 
+    def test_comma_separated_timestamps_without_spaces(self):
+        items = extract_manual_timestamps(
+            "Potong 15.32,31.12,45.10,59.34"
+        )
+        self.assertEqual(
+            [x.time_ms for x in items],
+            [
+                15 * 60_000 + 32_000,
+                31 * 60_000 + 12_000,
+                45 * 60_000 + 10_000,
+                59 * 60_000 + 34_000,
+            ],
+        )
+
     def test_requested_frame_uses_nearest_real_pts_only(self):
         with patch(
             "minicut_agent.frame_resolver.probe_frame_timestamps",
