@@ -55,7 +55,7 @@ def extract_manual_timestamps(text: str) -> list[ManualTimestamp]:
 
     # M:SS, M.SS, optionally milliseconds as M.SS.mmm / M:SS.mmm.
     for m in re.finditer(
-        r"(?<![\d:])(\d{1,3})[.:](\d{2})(?:[.:,](\d{1,3}))?(?!\d)",
+        r"(?<![\d:])(\d{1,3})[.:](\d{2})(?:[.:](\d{1,3}))?(?!\d)",
         raw_text,
     ):
         if overlaps(m.start(), m.end()):
