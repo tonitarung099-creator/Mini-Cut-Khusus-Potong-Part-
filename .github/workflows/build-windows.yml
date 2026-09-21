@@ -121,8 +121,19 @@ jobs:
       - name: Smoke test compact UI layout
         shell: pwsh
         run: |
-          & "dist/MiniCut Studio Agent/MiniCut Studio Agent.exe" --self-test-layout
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $stdout = Join-Path $env:RUNNER_TEMP "minicut-layout-out.txt"
+          $stderr = Join-Path $env:RUNNER_TEMP "minicut-layout-err.txt"
+          $p = Start-Process -FilePath "dist/MiniCut Studio Agent/MiniCut Studio Agent.exe" -ArgumentList "--self-test-layout" -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if (-not $p.WaitForExit(30000)) {
+            $p.Kill()
+            throw "MiniCut layout self-test timeout"
+          }
+          $p.Refresh()
+          if (Test-Path $stdout) { Get-Content $stdout }
+          if (Test-Path $stderr) { Get-Content $stderr }
+          if ($p.ExitCode -ne 0) {
+            throw "MiniCut layout self-test failed with exit code $($p.ExitCode)"
+          }
 
       - name: Package ZIP
         shell: pwsh

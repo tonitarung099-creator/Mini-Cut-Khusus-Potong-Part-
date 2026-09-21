@@ -18,16 +18,26 @@ def main():
         QTimer.singleShot(1800, verify_player_backend)
     elif "--self-test-layout" in sys.argv:
         def verify_layout():
-            win.resize(1120, 680)
-            app.processEvents()
-            issues = win.ui_layout_issues()
-            if issues:
-                for issue in issues:
-                    print("layout-failed: " + issue)
-                app.exit(4)
-            else:
-                print("layout-ok: no overlapping or clipped interactive controls")
-                app.exit(0)
+            try:
+                win.resize(1120, 680)
+                app.processEvents()
+                issues = win.ui_layout_issues()
+                if issues:
+                    for issue in issues:
+                        print("layout-failed: " + issue, flush=True)
+                    app.exit(4)
+                else:
+                    print(
+                        "layout-ok: no overlapping or clipped interactive controls",
+                        flush=True,
+                    )
+                    app.exit(0)
+            except Exception as exc:
+                print(
+                    f"layout-exception: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+                app.exit(5)
         QTimer.singleShot(1600, verify_layout)
     elif "--self-test" in sys.argv:
         QTimer.singleShot(1200, app.quit)

@@ -3107,9 +3107,13 @@ class MiniCutWindow(QMainWindow):
             return widget.rect().translated(top_left)
 
         def check_visible_controls(scope_name: str, root: QWidget):
+            control_types = (QPushButton, QComboBox, QLineEdit, QSpinBox)
             controls = [
-                w for w in root.findChildren((QPushButton, QComboBox, QLineEdit, QSpinBox))
-                if w.isVisible() and w.width() > 0 and w.height() > 0
+                w for w in root.findChildren(QWidget)
+                if isinstance(w, control_types)
+                and w.isVisible()
+                and w.width() > 0
+                and w.height() > 0
             ]
             for widget in controls:
                 if isinstance(widget, QPushButton):
