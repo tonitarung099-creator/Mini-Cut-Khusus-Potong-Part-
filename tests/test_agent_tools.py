@@ -124,6 +124,7 @@ class AgentTransactionTests(unittest.TestCase):
 class _UndoHost:
     _snapshot = MiniCutWindow._snapshot
     _restore_snapshot = MiniCutWindow._restore_snapshot
+    _require_tool_project_ready = MiniCutWindow._require_tool_project_ready
     _require_tool_media_ready = MiniCutWindow._require_tool_media_ready
     tool_undo = MiniCutWindow.tool_undo
 
