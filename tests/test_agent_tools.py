@@ -124,11 +124,14 @@ class AgentTransactionTests(unittest.TestCase):
 class _UndoHost:
     _snapshot = MiniCutWindow._snapshot
     _restore_snapshot = MiniCutWindow._restore_snapshot
+    _require_tool_media_ready = MiniCutWindow._require_tool_media_ready
     tool_undo = MiniCutWindow.tool_undo
 
     def __init__(self):
         self.model = ProjectModel()
+        self.model.source = __import__("pathlib").Path("movie.mp4")
         self.model.duration_ms = 120_000
+        self.analyze_worker = None
         self.undo_stack = []
 
     def _refresh(self):
