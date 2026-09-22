@@ -1,8 +1,8 @@
 $ErrorActionPreference = "Stop"
 
-$tag = "autobuild-2026-09-21-13-55"
-$asset = "ffmpeg-N-126734-ga9cbcc2bbb-win64-lgpl.zip"
-$expected = "d9e6450b2078201e2ffb53d55f4e4e2657f71663fd8603e4d2bf94d8c814df3c"
+$tag = "autobuild-2026-08-31-13-27"
+$asset = "ffmpeg-N-126342-gf88b741dbf-win64-lgpl.zip"
+$expected = "7a7d7ad65d5d53aefc57fc3f78e00febe7b65156c03d14d43efc1393ef46a111"
 $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/$tag/$asset"
 
 $root = Join-Path $PSScriptRoot ".."
