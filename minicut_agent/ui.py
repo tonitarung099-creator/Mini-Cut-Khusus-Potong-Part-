@@ -2162,6 +2162,14 @@ class MiniCutWindow(QMainWindow):
         if manual_cut and not self.model.source:
             QMessageBox.warning(self, APP_TITLE, "Buka video terlebih dahulu sebelum memberi perintah cut.")
             return
+        if manual_cut and not self.model.source.is_file():
+            QMessageBox.warning(
+                self,
+                APP_TITLE,
+                "Video sumber sudah tidak ditemukan. Buka kembali video/proyek "
+                "sebelum memberi perintah cut.",
+            )
+            return
 
         self._append_gemini_chat("user", text)
         self.gemini_chat_input.clear()
@@ -2381,6 +2389,12 @@ class MiniCutWindow(QMainWindow):
     def _start_manual_frame_cuts(self, locked: list[dict]):
         if not self.model.source:
             self._append_gemini_chat("system", "Buka video terlebih dahulu.")
+            return
+        if not self.model.source.is_file():
+            self._append_gemini_chat(
+                "system",
+                "Video sumber sudah tidak ditemukan. Buka kembali video/proyek.",
+            )
             return
         ffprobe = find_tool("ffprobe")
         if not ffprobe:
