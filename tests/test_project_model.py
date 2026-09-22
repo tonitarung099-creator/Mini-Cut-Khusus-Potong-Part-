@@ -1,9 +1,11 @@
+import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from minicut_agent.core import load_project_file
+from minicut_agent.core import export_segments, load_project_file
 
 
 class ProjectPortabilityTests(unittest.TestCase):
@@ -28,6 +30,33 @@ class ProjectPortabilityTests(unittest.TestCase):
 
             _data, source = load_project_file(project)
             self.assertEqual(source, relative_video.resolve())
+
+
+class FastExportNamingTests(unittest.TestCase):
+    def test_fast_export_starts_part_number_at_one(self):
+        class DummyProc:
+            def __init__(self):
+                self.stdout = io.StringIO("out_time_ms=1000000\n")
+
+            def wait(self, timeout=None):
+                return 0
+
+        with tempfile.TemporaryDirectory() as td, patch(
+            "minicut_agent.core.subprocess.Popen",
+            return_value=DummyProc(),
+        ) as popen:
+            export_segments(
+                "ffmpeg",
+                Path(td) / "movie.mp4",
+                Path(td) / "parts",
+                "movie",
+                [1_000],
+                2_000,
+            )
+
+        cmd = popen.call_args.args[0]
+        index = cmd.index("-segment_start_number")
+        self.assertEqual(cmd[index + 1], "1")
 
 
 if __name__ == "__main__":
