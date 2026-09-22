@@ -252,6 +252,20 @@ class ToolMediaReadyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             host._require_tool_media_ready()
 
+    def test_media_tools_reject_when_source_file_disappeared(self):
+        class Host:
+            _require_tool_media_ready = MiniCutWindow._require_tool_media_ready
+
+        host = Host()
+        host.model = ProjectModel()
+        host.model.source = __import__("pathlib").Path(
+            "definitely-missing-video-for-test.mp4"
+        )
+        host.analyze_worker = None
+
+        with self.assertRaises(FileNotFoundError):
+            host._require_tool_media_ready()
+
 
 if __name__ == "__main__":
     unittest.main()
