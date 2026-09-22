@@ -228,9 +228,11 @@ class ExportCleanupTests(unittest.TestCase):
             stale1 = out / f"{base}_Part-01.mp4"
             stale2 = out / f"{base}_Part-10.mp4"
             keep = out / "film-lain_Part-01.mp4"
+            user_file = out / f"{base}_Part-catatan.mp4"
             stale1.write_bytes(b"old-1")
             stale2.write_bytes(b"old-2")
             keep.write_bytes(b"keep")
+            user_file.write_bytes(b"user-data")
 
             self.assertEqual(
                 [p.name for p in _export_part_files(out, base, ".mp4")],
@@ -241,6 +243,7 @@ class ExportCleanupTests(unittest.TestCase):
             self.assertFalse(stale1.exists())
             self.assertFalse(stale2.exists())
             self.assertTrue(keep.exists())
+            self.assertTrue(user_file.exists())
 
 
 class FilmCutCacheTests(unittest.TestCase):
