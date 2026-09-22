@@ -178,5 +178,79 @@ class ProjectValidationTests(unittest.TestCase):
             self.assertEqual(data["cuts"], [])
 
 
+class ExportStagingSafetyTests(unittest.TestCase):
+    def test_failed_fast_export_preserves_previous_successful_parts(self):
+        class FailingProc:
+            def __init__(self):
+                self.stdout = io.StringIO("ffmpeg error\n")
+
+            def wait(self, timeout=None):
+                return 1
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            out = root / "movie_Parts"
+            out.mkdir()
+            previous = out / "movie_Part-01.mp4"
+            previous.write_bytes(b"previous-good-export")
+
+            with patch(
+                "minicut_agent.core.subprocess.Popen",
+                return_value=FailingProc(),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "FFmpeg berhenti"):
+                    export_segments(
+                        "ffmpeg",
+                        root / "movie.mp4",
+                        out,
+                        "movie",
+                        [],
+                        2_000,
+                    )
+
+            self.assertEqual(
+                previous.read_bytes(),
+                b"previous-good-export",
+            )
+
+    def test_successful_export_replaces_previous_parts_after_validation(self):
+        class SuccessProc:
+            def __init__(self, cmd):
+                self.stdout = io.StringIO("out_time_ms=2000000\n")
+                Path(cmd[-1]).write_bytes(b"new-export")
+
+            def wait(self, timeout=None):
+                return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            out = root / "movie_Parts"
+            out.mkdir()
+            previous = out / "movie_Part-01.mp4"
+            stale = out / "movie_Part-02.mp4"
+            previous.write_bytes(b"old-one")
+            stale.write_bytes(b"old-two")
+
+            def fake_popen(cmd, **kwargs):
+                return SuccessProc(cmd)
+
+            with patch(
+                "minicut_agent.core.subprocess.Popen",
+                side_effect=fake_popen,
+            ):
+                count, _size = export_segments(
+                    "ffmpeg",
+                    root / "movie.mp4",
+                    out,
+                    "movie",
+                    [],
+                    2_000,
+                )
+
+            self.assertEqual(count, 1)
+            self.assertEqual(previous.read_bytes(), b"new-export")
+            self.assertFalse(stale.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
