@@ -411,6 +411,49 @@ def _clear_export_parts(output_dir: Path, base_name: str, ext: str) -> None:
         path.unlink(missing_ok=True)
 
 
+def _commit_staged_export_parts(
+    staging_dir: Path,
+    output_dir: Path,
+    base_name: str,
+    ext: str,
+) -> list[Path]:
+    """Replace previous generated parts only after the new export is complete."""
+    staged = _export_part_files(staging_dir, base_name, ext)
+    if not staged:
+        raise RuntimeError("Tidak ada hasil ekspor baru untuk dipindahkan.")
+
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    previous = _export_part_files(output_dir, base_name, ext)
+
+    with tempfile.TemporaryDirectory(
+        prefix=f".{output_dir.name}.backup-",
+        dir=str(output_dir.parent),
+    ) as backup_raw:
+        backup_dir = Path(backup_raw)
+        backed_up: list[tuple[Path, Path]] = []
+        installed: list[Path] = []
+        try:
+            for old in previous:
+                backup = backup_dir / old.name
+                old.replace(backup)
+                backed_up.append((backup, old))
+
+            for new_part in staged:
+                destination = output_dir / new_part.name
+                new_part.replace(destination)
+                installed.append(destination)
+        except Exception:
+            for destination in installed:
+                destination.unlink(missing_ok=True)
+            for backup, original in backed_up:
+                if backup.exists():
+                    backup.replace(original)
+            raise
+
+    return _export_part_files(output_dir, base_name, ext)
+
+
 def export_segments(
     ffmpeg: str,
     source: Path,
@@ -422,71 +465,96 @@ def export_segments(
     log: Callable[[str], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> tuple[int, int]:
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
     ext = source.suffix or ".mp4"
-    _clear_export_parts(output_dir, base_name, ext)
-    pattern = output_dir / f"{base_name}_Part-%02d{ext}"
-    cmd = [
-        ffmpeg, "-y", "-hide_banner", "-nostats", "-progress", "pipe:1",
-        "-i", str(source), "-map", "0", "-c", "copy", "-map_metadata", "0",
-    ]
-    if cut_times_ms:
-        cmd += [
-            "-segment_times", ",".join(f"{v / 1000:.3f}" for v in cut_times_ms),
-            "-reset_timestamps", "1",
-            "-segment_start_number", "1",
-            "-f", "segment",
-            str(pattern),
-        ]
-    else:
-        # A timeline without cuts is exactly one part. Do not invoke FFmpeg's
-        # segment muxer without segment_times because it may apply its own
-        # default segment duration.
-        cmd += [str(output_dir / f"{base_name}_Part-01{ext}")]
-    proc = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-        encoding="utf-8", errors="replace", creationflags=creation_flags()
+    stage_ctx = tempfile.TemporaryDirectory(
+        prefix=f".{output_dir.name}.stage-",
+        dir=str(output_dir.parent),
     )
-    assert proc.stdout is not None
-    for raw in proc.stdout:
-        if cancelled and cancelled():
-            proc.terminate()
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=5)
-            _clear_export_parts(output_dir, base_name, ext)
-            raise InterruptedError("Ekspor dibatalkan.")
-        line = raw.strip()
-        if line.startswith("out_time_ms="):
-            try:
-                out_ms = int(line.split("=", 1)[1]) // 1000
-                pct = int(min(100, out_ms / max(1, duration_ms) * 100))
-                if progress:
-                    progress(pct, clock_text(out_ms))
-            except ValueError:
-                pass
-        elif line and log and not line.startswith(("frame=", "fps=", "stream_", "progress=")):
-            log(line)
-    rc = proc.wait()
-    if rc != 0:
-        _clear_export_parts(output_dir, base_name, ext)
-        raise RuntimeError(f"FFmpeg berhenti dengan kode {rc}.")
-    files = [
-        p for p in _export_part_files(output_dir, base_name, ext)
-        if p.stat().st_size > 0
-    ]
-    expected = len(cut_times_ms) + 1
-    if len(files) != expected:
-        _clear_export_parts(output_dir, base_name, ext)
-        raise RuntimeError(
-            f"FFmpeg selesai tetapi hasil part tidak lengkap "
-            f"({len(files)}/{expected} file valid)."
+    staging_dir = Path(stage_ctx.name)
+    try:
+        pattern = staging_dir / f"{base_name}_Part-%02d{ext}"
+        cmd = [
+            ffmpeg, "-y", "-hide_banner", "-nostats", "-progress", "pipe:1",
+            "-i", str(source), "-map", "0", "-c", "copy", "-map_metadata", "0",
+        ]
+        if cut_times_ms:
+            cmd += [
+                "-segment_times", ",".join(
+                    f"{v / 1000:.3f}" for v in cut_times_ms
+                ),
+                "-reset_timestamps", "1",
+                "-segment_start_number", "1",
+                "-f", "segment",
+                str(pattern),
+            ]
+        else:
+            # A timeline without cuts is exactly one part.
+            cmd += [str(staging_dir / f"{base_name}_Part-01{ext}")]
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=creation_flags(),
         )
-    return len(files), sum(p.stat().st_size for p in files)
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            if cancelled and cancelled():
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                raise InterruptedError("Ekspor dibatalkan.")
+            line = raw.strip()
+            if line.startswith("out_time_ms="):
+                try:
+                    out_ms = int(line.split("=", 1)[1]) // 1000
+                    pct = int(
+                        min(100, out_ms / max(1, duration_ms) * 100)
+                    )
+                    if progress:
+                        progress(pct, clock_text(out_ms))
+                except ValueError:
+                    pass
+            elif (
+                line
+                and log
+                and not line.startswith(
+                    ("frame=", "fps=", "stream_", "progress=")
+                )
+            ):
+                log(line)
 
+        rc = proc.wait()
+        if rc != 0:
+            raise RuntimeError(f"FFmpeg berhenti dengan kode {rc}.")
 
+        files = [
+            p for p in _export_part_files(staging_dir, base_name, ext)
+            if p.stat().st_size > 0
+        ]
+        expected = len(cut_times_ms) + 1
+        if len(files) != expected:
+            raise RuntimeError(
+                f"FFmpeg selesai tetapi hasil part tidak lengkap "
+                f"({len(files)}/{expected} file valid)."
+            )
+
+        committed = _commit_staged_export_parts(
+            staging_dir,
+            output_dir,
+            base_name,
+            ext,
+        )
+        return len(committed), sum(p.stat().st_size for p in committed)
+    finally:
+        stage_ctx.cleanup()
 
 def export_segments_smartcut(
     smartcut_exe: str,
@@ -501,85 +569,111 @@ def export_segments_smartcut(
 ) -> tuple[int, int]:
     """Frame-accurate export using the SmartCut companion.
 
-    SmartCut minimally re-encodes around non-keyframe cut points and copies
-    the rest of the media whenever its codec/container permits it.
+    New parts are written to a staging directory first. Existing successful
+    exports remain untouched until every new part has completed successfully.
     """
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
     ext = source.suffix or ".mp4"
-    _clear_export_parts(output_dir, base_name, ext)
     marks = [0] + sorted(
         set(int(v) for v in cut_times_ms if 0 < int(v) < int(duration_ms))
     ) + [int(duration_ms)]
     ranges = [(marks[i], marks[i + 1]) for i in range(len(marks) - 1)]
+
+    stage_ctx = tempfile.TemporaryDirectory(
+        prefix=f".{output_dir.name}.stage-",
+        dir=str(output_dir.parent),
+    )
+    staging_dir = Path(stage_ctx.name)
     created: list[Path] = []
+    try:
+        for idx, (start_ms, end_ms) in enumerate(ranges, 1):
+            if cancelled and cancelled():
+                raise InterruptedError("Ekspor dibatalkan.")
 
-    for idx, (start_ms, end_ms) in enumerate(ranges, 1):
-        if cancelled and cancelled():
-            _clear_export_parts(output_dir, base_name, ext)
-            raise InterruptedError("Ekspor dibatalkan.")
-
-        out = output_dir / f"{base_name}_Part-{idx:02d}{ext}"
-        start_arg = "start" if start_ms <= 0 else f"{start_ms / 1000:.6f}"
-        end_arg = "end" if end_ms >= duration_ms else f"{end_ms / 1000:.6f}"
-        keep = f"{start_arg},{end_arg}"
-        if progress:
-            progress(
-                int((idx - 1) / max(1, len(ranges)) * 100),
-                f"SmartCut Part-{idx:02d} · {clock_text(start_ms)} → {clock_text(end_ms)}",
+            out = staging_dir / f"{base_name}_Part-{idx:02d}{ext}"
+            start_arg = (
+                "start" if start_ms <= 0 else f"{start_ms / 1000:.6f}"
             )
-        if log:
-            log(f"SmartCut Part-{idx:02d}: {keep}")
-
-        if out.exists():
-            out.unlink()
-        with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as smartcut_log:
-            proc = subprocess.Popen(
-                [
-                    smartcut_exe,
-                    str(source),
-                    str(out),
-                    "--keep",
-                    keep,
-                    "--log-level",
-                    "warning",
-                ],
-                stdout=smartcut_log,
-                stderr=subprocess.STDOUT,
-                text=True,
-                creationflags=creation_flags(),
+            end_arg = (
+                "end"
+                if end_ms >= duration_ms
+                else f"{end_ms / 1000:.6f}"
             )
-            while proc.poll() is None:
-                if cancelled and cancelled():
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
-                        proc.wait(timeout=5)
-                    _clear_export_parts(output_dir, base_name, ext)
-                    raise InterruptedError("Ekspor dibatalkan.")
-                time.sleep(0.12)
-            smartcut_log.seek(0)
-            lines = [x.strip() for x in smartcut_log.readlines() if x.strip()]
+            keep = f"{start_arg},{end_arg}"
+            if progress:
+                progress(
+                    int((idx - 1) / max(1, len(ranges)) * 100),
+                    f"SmartCut Part-{idx:02d} · "
+                    f"{clock_text(start_ms)} → {clock_text(end_ms)}",
+                )
             if log:
-                for clean in lines[-20:]:
-                    log(clean)
+                log(f"SmartCut Part-{idx:02d}: {keep}")
 
-        if proc.returncode != 0:
-            tail = "\n".join(lines[-20:])
-            _clear_export_parts(output_dir, base_name, ext)
-            raise RuntimeError(
-                f"SmartCut gagal pada Part-{idx:02d} (kode {proc.returncode})."
-                + (f"\n{tail}" if tail else "")
-            )
-        if not out.is_file() or out.stat().st_size <= 0:
-            _clear_export_parts(output_dir, base_name, ext)
-            raise RuntimeError(f"SmartCut tidak menghasilkan Part-{idx:02d}.")
-        created.append(out)
-        if progress:
-            progress(
-                int(idx / max(1, len(ranges)) * 100),
-                f"SmartCut Part-{idx:02d} selesai",
-            )
+            with tempfile.TemporaryFile(
+                mode="w+t",
+                encoding="utf-8",
+            ) as smartcut_log:
+                proc = subprocess.Popen(
+                    [
+                        smartcut_exe,
+                        str(source),
+                        str(out),
+                        "--keep",
+                        keep,
+                        "--log-level",
+                        "warning",
+                    ],
+                    stdout=smartcut_log,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    creationflags=creation_flags(),
+                )
+                while proc.poll() is None:
+                    if cancelled and cancelled():
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                            proc.wait(timeout=5)
+                        raise InterruptedError("Ekspor dibatalkan.")
+                    time.sleep(0.12)
+                smartcut_log.seek(0)
+                lines = [
+                    x.strip()
+                    for x in smartcut_log.readlines()
+                    if x.strip()
+                ]
+                if log:
+                    for clean in lines[-20:]:
+                        log(clean)
 
-    return len(created), sum(p.stat().st_size for p in created)
+            if proc.returncode != 0:
+                tail = "\n".join(lines[-20:])
+                raise RuntimeError(
+                    f"SmartCut gagal pada Part-{idx:02d} "
+                    f"(kode {proc.returncode})."
+                    + (f"\n{tail}" if tail else "")
+                )
+            if not out.is_file() or out.stat().st_size <= 0:
+                raise RuntimeError(
+                    f"SmartCut tidak menghasilkan Part-{idx:02d}."
+                )
+
+            created.append(out)
+            if progress:
+                progress(
+                    int(idx / max(1, len(ranges)) * 100),
+                    f"SmartCut Part-{idx:02d} selesai",
+                )
+
+        committed = _commit_staged_export_parts(
+            staging_dir,
+            output_dir,
+            base_name,
+            ext,
+        )
+        return len(committed), sum(p.stat().st_size for p in committed)
+    finally:
+        stage_ctx.cleanup()
+
