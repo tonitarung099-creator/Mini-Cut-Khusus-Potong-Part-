@@ -220,5 +220,35 @@ class BridgeUndoTests(unittest.TestCase):
         self.assertEqual(host.undo_stack, [])
 
 
+class _RunningWorker:
+    def isRunning(self):
+        return True
+
+
+class ToolMediaReadyTests(unittest.TestCase):
+    def test_media_tools_reject_while_new_media_is_loading(self):
+        class Host:
+            _require_tool_media_ready = MiniCutWindow._require_tool_media_ready
+
+        host = Host()
+        host.model = ProjectModel()
+        host.model.source = __import__("pathlib").Path("old.mp4")
+        host.analyze_worker = _RunningWorker()
+
+        with self.assertRaises(RuntimeError):
+            host._require_tool_media_ready()
+
+    def test_media_tools_reject_without_loaded_video(self):
+        class Host:
+            _require_tool_media_ready = MiniCutWindow._require_tool_media_ready
+
+        host = Host()
+        host.model = ProjectModel()
+        host.analyze_worker = None
+
+        with self.assertRaises(ValueError):
+            host._require_tool_media_ready()
+
+
 if __name__ == "__main__":
     unittest.main()
