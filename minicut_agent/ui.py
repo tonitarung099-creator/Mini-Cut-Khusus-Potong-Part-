@@ -3291,7 +3291,11 @@ class MiniCutWindow(QMainWindow):
             try:
                 before = self._snapshot()
                 result = self.registry.execute(call.tool, call.args)
-                if call.tool in MUTATING_TOOLS:
+                if (
+                    call.tool in MUTATING_TOOLS
+                    and isinstance(result, dict)
+                    and result.get("ok", True)
+                ):
                     self.undo_stack.append(before)
                 call.result.update(result)
                 call.result.setdefault("ok", True)
@@ -3356,8 +3360,17 @@ class MiniCutWindow(QMainWindow):
         if path.suffix.lower() == ".json":
             try:
                 data, source = load_project_file(path)
-                if source:
-                    self._begin_load(source, data, path)
+                if not source:
+                    chosen, _ = QFileDialog.getOpenFileName(
+                        self,
+                        "Video sumber proyek tidak ditemukan. Cari video sumber",
+                        str(path.parent),
+                        "Video (*.*)",
+                    )
+                    if not chosen:
+                        return
+                    source = Path(chosen)
+                self._begin_load(source, data, path)
             except Exception as exc:
                 QMessageBox.warning(self, APP_TITLE, str(exc))
         elif path.suffix.lower() in SUPPORTED_VIDEO:
