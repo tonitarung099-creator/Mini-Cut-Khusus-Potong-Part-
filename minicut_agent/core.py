@@ -354,9 +354,32 @@ class ProjectModel:
         self.dirty = False
 
 def load_project_file(path: Path) -> tuple[dict[str, Any], Path | None]:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if data.get("app") != "MiniCut Studio":
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("File proyek MiniCut rusak atau tidak dapat dibaca.") from exc
+    if not isinstance(data, dict) or data.get("app") != "MiniCut Studio":
         raise ValueError("File JSON bukan proyek MiniCut Studio.")
+
+    cuts = data.get("cuts", [])
+    if cuts is None:
+        cuts = []
+        data["cuts"] = cuts
+    if not isinstance(cuts, list):
+        raise ValueError("Daftar cut pada proyek MiniCut rusak.")
+    for index, item in enumerate(cuts, 1):
+        if not isinstance(item, dict):
+            raise ValueError(f"Data cut ke-{index} pada proyek MiniCut rusak.")
+        try:
+            requested = int(item.get("requested_ms", item.get("actual_ms", 0)))
+            actual = int(item.get("actual_ms", requested))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Timestamp cut ke-{index} pada proyek MiniCut tidak valid."
+            ) from exc
+        item["requested_ms"] = requested
+        item["actual_ms"] = actual
+
     candidates = []
     # Relative source keeps a project folder portable after it is moved/copied.
     if data.get("source_relative"):
