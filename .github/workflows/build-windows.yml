@@ -87,6 +87,9 @@ jobs:
           Copy-Item "ffmpeg-runtime/ffmpeg.exe" "dist/MiniCut Studio Agent/ffmpeg.exe" -Force
           Copy-Item "ffmpeg-runtime/ffprobe.exe" "dist/MiniCut Studio Agent/ffprobe.exe" -Force
           Copy-Item THIRD_PARTY_FFMPEG.txt "dist/MiniCut Studio Agent/THIRD_PARTY_FFMPEG.txt" -Force
+          if (Test-Path "ffmpeg-runtime/FFMPEG_BUILD_LICENSE.txt") {
+            Copy-Item "ffmpeg-runtime/FFMPEG_BUILD_LICENSE.txt" "dist/MiniCut Studio Agent/FFMPEG_BUILD_LICENSE.txt" -Force
+          }
 
       - name: Build MCP companion
         shell: pwsh
