@@ -346,10 +346,11 @@ def load_project_file(path: Path) -> tuple[dict[str, Any], Path | None]:
     if data.get("app") != "MiniCut Studio":
         raise ValueError("File JSON bukan proyek MiniCut Studio.")
     candidates = []
-    if data.get("source_absolute"):
-        candidates.append(Path(data["source_absolute"]))
+    # Relative source keeps a project folder portable after it is moved/copied.
     if data.get("source_relative"):
         candidates.append((path.parent / data["source_relative"]).resolve())
+    if data.get("source_absolute"):
+        candidates.append(Path(data["source_absolute"]))
     source = next((p for p in candidates if p.is_file()), None)
     return data, source
 
