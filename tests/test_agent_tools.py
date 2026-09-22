@@ -1,12 +1,15 @@
 import unittest
 from unittest.mock import patch
 
-from minicut_agent.agent import AgentPlanner, ToolRegistry
+from minicut_agent.agent import AgentPlanner, MUTATING_TOOLS, ToolRegistry
 from minicut_agent.core import CutPoint, ProjectModel
 from minicut_agent.ui import MiniCutWindow
 
 
 class ToolManifestCoverageTests(unittest.TestCase):
+    def test_apply_film_cut_is_treated_as_timeline_mutation(self):
+        self.assertIn("apply_film_cut", MUTATING_TOOLS)
+
     def test_every_manifest_tool_has_ui_executor(self):
         registry = ToolRegistry(object())
         missing = [
