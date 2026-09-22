@@ -229,8 +229,23 @@ class _RunningWorker:
 
 
 class ToolMediaReadyTests(unittest.TestCase):
+    def test_project_state_can_remain_usable_when_media_file_is_missing(self):
+        class Host:
+            _require_tool_project_ready = MiniCutWindow._require_tool_project_ready
+
+        host = Host()
+        host.model = ProjectModel()
+        host.model.source = __import__("pathlib").Path(
+            "missing-but-project-can-still-be-saved.mp4"
+        )
+        host.analyze_worker = None
+
+        # Saving/undoing project state must remain possible.
+        host._require_tool_project_ready()
+
     def test_media_tools_reject_while_new_media_is_loading(self):
         class Host:
+            _require_tool_project_ready = MiniCutWindow._require_tool_project_ready
             _require_tool_media_ready = MiniCutWindow._require_tool_media_ready
 
         host = Host()
