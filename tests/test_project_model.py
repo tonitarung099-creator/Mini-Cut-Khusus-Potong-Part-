@@ -149,5 +149,34 @@ class ProjectAtomicSaveTests(unittest.TestCase):
             self.assertFalse(model.dirty)
 
 
+class ProjectValidationTests(unittest.TestCase):
+    def test_broken_json_is_rejected_with_clear_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td) / "broken.minicut.json"
+            project.write_text("{broken", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "rusak atau tidak dapat dibaca"):
+                load_project_file(project)
+
+    def test_non_list_cuts_are_rejected_before_video_analysis(self):
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td) / "broken.minicut.json"
+            project.write_text(json.dumps({
+                "app": "MiniCut Studio",
+                "cuts": {"actual_ms": 1000},
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "Daftar cut"):
+                load_project_file(project)
+
+    def test_null_cuts_are_normalized_to_empty_list(self):
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td) / "old.minicut.json"
+            project.write_text(json.dumps({
+                "app": "MiniCut Studio",
+                "cuts": None,
+            }), encoding="utf-8")
+            data, _source = load_project_file(project)
+            self.assertEqual(data["cuts"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
