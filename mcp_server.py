@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -21,8 +22,22 @@ def request_json(
         headers={"Content-Type": "application/json"},
         method="GET" if payload is None else "POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        try:
+            payload = json.loads(raw or "{}")
+        except json.JSONDecodeError:
+            raise RuntimeError(
+                f"MiniCut bridge HTTP {exc.code}: {raw or exc.reason}"
+            ) from exc
+        if isinstance(payload, dict):
+            return payload
+        raise RuntimeError(
+            f"MiniCut bridge HTTP {exc.code}: respons tidak valid."
+        ) from exc
 
 def run_tool(name: str, **args):
     interactive_tools = {
