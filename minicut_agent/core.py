@@ -391,16 +391,23 @@ def export_segments(
     ext = source.suffix or ".mp4"
     _clear_export_parts(output_dir, base_name, ext)
     pattern = output_dir / f"{base_name}_Part-%02d{ext}"
-    cmd = [ffmpeg, "-y", "-hide_banner", "-nostats", "-progress", "pipe:1", "-i", str(source),
-           "-map", "0", "-c", "copy", "-map_metadata", "0"]
-    if cut_times_ms:
-        cmd += ["-segment_times", ",".join(f"{v / 1000:.3f}" for v in cut_times_ms)]
-    cmd += [
-        "-reset_timestamps", "1",
-        "-segment_start_number", "1",
-        "-f", "segment",
-        str(pattern),
+    cmd = [
+        ffmpeg, "-y", "-hide_banner", "-nostats", "-progress", "pipe:1",
+        "-i", str(source), "-map", "0", "-c", "copy", "-map_metadata", "0",
     ]
+    if cut_times_ms:
+        cmd += [
+            "-segment_times", ",".join(f"{v / 1000:.3f}" for v in cut_times_ms),
+            "-reset_timestamps", "1",
+            "-segment_start_number", "1",
+            "-f", "segment",
+            str(pattern),
+        ]
+    else:
+        # A timeline without cuts is exactly one part. Do not invoke FFmpeg's
+        # segment muxer without segment_times because it may apply its own
+        # default segment duration.
+        cmd += [str(output_dir / f"{base_name}_Part-01{ext}")]
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         encoding="utf-8", errors="replace", creationflags=creation_flags()
@@ -431,8 +438,18 @@ def export_segments(
     if rc != 0:
         _clear_export_parts(output_dir, base_name, ext)
         raise RuntimeError(f"FFmpeg berhenti dengan kode {rc}.")
-    files = _export_part_files(output_dir, base_name, ext)
-    return len(files) or len(cut_times_ms) + 1, sum(p.stat().st_size for p in files)
+    files = [
+        p for p in _export_part_files(output_dir, base_name, ext)
+        if p.stat().st_size > 0
+    ]
+    expected = len(cut_times_ms) + 1
+    if len(files) != expected:
+        _clear_export_parts(output_dir, base_name, ext)
+        raise RuntimeError(
+            f"FFmpeg selesai tetapi hasil part tidak lengkap "
+            f"({len(files)}/{expected} file valid)."
+        )
+    return len(files), sum(p.stat().st_size for p in files)
 
 
 
