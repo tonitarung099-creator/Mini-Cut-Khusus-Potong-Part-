@@ -389,7 +389,12 @@ def export_segments(
            "-map", "0", "-c", "copy", "-map_metadata", "0"]
     if cut_times_ms:
         cmd += ["-segment_times", ",".join(f"{v / 1000:.3f}" for v in cut_times_ms)]
-    cmd += ["-reset_timestamps", "1", "-f", "segment", str(pattern)]
+    cmd += [
+        "-reset_timestamps", "1",
+        "-segment_start_number", "1",
+        "-f", "segment",
+        str(pattern),
+    ]
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         encoding="utf-8", errors="replace", creationflags=creation_flags()
