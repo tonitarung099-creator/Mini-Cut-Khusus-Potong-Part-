@@ -8,9 +8,9 @@ BtbN/FFmpeg-Builds
 https://github.com/BtbN/FFmpeg-Builds
 
 Pinned build:
-Tag: autobuild-2026-09-21-13-55
-Asset: ffmpeg-N-126734-ga9cbcc2bbb-win64-lgpl.zip
-SHA256: d9e6450b2078201e2ffb53d55f4e4e2657f71663fd8603e4d2bf94d8c814df3c
+Tag: autobuild-2026-08-31-13-27
+Asset: ffmpeg-N-126342-gf88b741dbf-win64-lgpl.zip
+SHA256: 7a7d7ad65d5d53aefc57fc3f78e00febe7b65156c03d14d43efc1393ef46a111
 
 This asset is the static Windows x86_64 LGPL variant published by the
 FFmpeg-Builds project. FFmpeg itself is a separate third-party project and is
