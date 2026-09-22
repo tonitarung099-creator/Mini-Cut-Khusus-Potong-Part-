@@ -37,6 +37,19 @@ jobs:
         run: |
           ./scripts/fetch_mpv.ps1
 
+      - name: Prepare FFmpeg runtime
+        shell: pwsh
+        run: |
+          ./scripts/fetch_ffmpeg.ps1
+
+      - name: Smoke test FFmpeg runtime
+        shell: pwsh
+        run: |
+          & "ffmpeg-runtime/ffmpeg.exe" -version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "ffmpeg-runtime/ffprobe.exe" -version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Smoke test libmpv runtime
         shell: pwsh
         run: |
@@ -71,6 +84,9 @@ jobs:
             Copy-Item $_.FullName "dist/MiniCut Studio Agent/" -Force
           }
           Copy-Item THIRD_PARTY_MPV.txt "dist/MiniCut Studio Agent/THIRD_PARTY_MPV.txt"
+          Copy-Item "ffmpeg-runtime/ffmpeg.exe" "dist/MiniCut Studio Agent/ffmpeg.exe" -Force
+          Copy-Item "ffmpeg-runtime/ffprobe.exe" "dist/MiniCut Studio Agent/ffprobe.exe" -Force
+          Copy-Item THIRD_PARTY_FFMPEG.txt "dist/MiniCut Studio Agent/THIRD_PARTY_FFMPEG.txt" -Force
 
       - name: Build MCP companion
         shell: pwsh
@@ -104,6 +120,14 @@ jobs:
           if ($p.ExitCode -ne 0) {
             throw "MiniCut self-test failed with exit code $($p.ExitCode)"
           }
+
+      - name: Verify packaged FFmpeg tools
+        shell: pwsh
+        run: |
+          & "dist/MiniCut Studio Agent/ffmpeg.exe" -version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "dist/MiniCut Studio Agent/ffprobe.exe" -version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Verify packaged mpv backend
         shell: pwsh
