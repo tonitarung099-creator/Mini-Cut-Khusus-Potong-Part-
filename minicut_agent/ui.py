@@ -2936,6 +2936,14 @@ class MiniCutWindow(QMainWindow):
         return {"ok": True, "applied_cuts": len(exact)}
 
     # ---------- tool API ----------
+    def _require_tool_media_ready(self) -> None:
+        if self.analyze_worker and self.analyze_worker.isRunning():
+            raise RuntimeError(
+                "Video/proyek baru sedang dianalisis. Tunggu sampai proses load selesai."
+            )
+        if not self.model.source:
+            raise ValueError("Belum ada video.")
+
     def tool_get_state(self):
         return {"ok": True, "state": self.model.state()}
 
@@ -2975,16 +2983,19 @@ class MiniCutWindow(QMainWindow):
         }
 
     def tool_seek(self, time_ms):
+        self._require_tool_media_ready()
         ms = self.model.clamp(parse_time_ms(time_ms))
         self.player.set_position(ms)
         self.model.playhead_ms = ms
         return {"ok": True, "playhead_ms": ms}
 
     def tool_play(self):
+        self._require_tool_media_ready()
         self.player.play()
         return {"ok": True}
 
     def tool_pause(self):
+        self._require_tool_media_ready()
         self.player.pause()
         return {"ok": True}
 
@@ -3003,11 +3014,10 @@ class MiniCutWindow(QMainWindow):
         return {"ok": True, "rate": self._current_playback_rate()}
 
     def tool_step_frame(self, direction):
+        self._require_tool_media_ready()
         direction = int(direction)
         if direction not in (-1, 1):
             raise ValueError("direction harus -1 (mundur) atau 1 (maju).")
-        if not self.model.source:
-            raise ValueError("Belum ada video.")
         before = int(self.model.playhead_ms)
         self._step_frame(direction)
         return {
@@ -3018,31 +3028,37 @@ class MiniCutWindow(QMainWindow):
         }
 
     def tool_add_cut(self, time_ms):
+        self._require_tool_media_ready()
         cut = self.model.add_cut(parse_time_ms(time_ms))
         self._refresh()
         return {"ok": True, "cut": asdict(cut), "parts": len(self.model.cuts) + 1}
 
     def tool_remove_cut(self, index):
+        self._require_tool_media_ready()
         cut = self.model.remove_cut(int(index))
         self._refresh()
         return {"ok": True, "removed": asdict(cut), "parts": len(self.model.cuts) + 1}
 
     def tool_clear_cuts(self):
+        self._require_tool_media_ready()
         self.model.clear_cuts()
         self._refresh()
         return {"ok": True, "parts": 1}
 
     def tool_divide_equal(self, parts):
+        self._require_tool_media_ready()
         self.model.divide_equal(int(parts))
         self._refresh()
         return {"ok": True, "parts": len(self.model.cuts) + 1}
 
     def tool_divide_interval(self, interval_ms):
+        self._require_tool_media_ready()
         self.model.divide_interval(parse_time_ms(interval_ms) if isinstance(interval_ms, str) else int(interval_ms))
         self._refresh()
         return {"ok": True, "parts": len(self.model.cuts) + 1}
 
     def tool_start_film_cut(self):
+        self._require_tool_media_ready()
         if self.film_cut_worker and self.film_cut_worker.isRunning():
             return {
                 "ok": True,
@@ -3064,6 +3080,7 @@ class MiniCutWindow(QMainWindow):
         return {"ok": True, "cancel_requested": running}
 
     def tool_apply_film_cut(self):
+        self._require_tool_media_ready()
         before = len(self.model.cuts)
         result = dict(self._apply_film_cut(record_undo=False) or {})
         after = len(self.model.cuts)
@@ -3078,6 +3095,7 @@ class MiniCutWindow(QMainWindow):
         return result
 
     def tool_preview_film_cut(self, row):
+        self._require_tool_media_ready()
         row = int(row)
         if row < 1 or row > self.film_table.rowCount():
             raise ValueError("Baris hasil AI Film Cut di luar rentang.")
@@ -3095,6 +3113,7 @@ class MiniCutWindow(QMainWindow):
         return {"ok": True, "mode": str(self.export_mode.currentData())}
 
     def tool_save_project(self):
+        self._require_tool_media_ready()
         if not self.model.source:
             raise ValueError("Belum ada proyek.")
         path = self.model.project_path
@@ -3110,6 +3129,7 @@ class MiniCutWindow(QMainWindow):
         return {"ok": True, "path": str(path)}
 
     def tool_export_all(self):
+        self._require_tool_media_ready()
         if not self.model.source:
             raise ValueError("Belum ada video.")
         if self.manual_cut_worker and self.manual_cut_worker.isRunning():
@@ -3188,6 +3208,7 @@ class MiniCutWindow(QMainWindow):
         return {"ok": True, "cancel_requested": running}
 
     def tool_undo(self):
+        self._require_tool_media_ready()
         if not self.undo_stack:
             return {"ok": False, "error": "Belum ada perubahan yang bisa di-undo."}
         snapshot = self.undo_stack.pop()
