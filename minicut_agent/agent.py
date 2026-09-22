@@ -7,7 +7,7 @@ from typing import Any
 
 from .core import parse_time_ms
 
-MUTATING_TOOLS = {"add_cut", "remove_cut", "clear_cuts", "divide_equal", "divide_interval"}
+MUTATING_TOOLS = {"add_cut", "remove_cut", "clear_cuts", "divide_equal", "divide_interval", "apply_film_cut"}
 
 class ToolRegistry:
     def __init__(self, host):
