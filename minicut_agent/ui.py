@@ -2946,13 +2946,16 @@ class MiniCutWindow(QMainWindow):
         return {"ok": True, "applied_cuts": len(exact)}
 
     # ---------- tool API ----------
-    def _require_tool_media_ready(self) -> None:
+    def _require_tool_project_ready(self) -> None:
         if self.analyze_worker and self.analyze_worker.isRunning():
             raise RuntimeError(
                 "Video/proyek baru sedang dianalisis. Tunggu sampai proses load selesai."
             )
         if not self.model.source:
-            raise ValueError("Belum ada video.")
+            raise ValueError("Belum ada proyek/video aktif.")
+
+    def _require_tool_media_ready(self) -> None:
+        self._require_tool_project_ready()
         if not self.model.source.is_file():
             raise FileNotFoundError(
                 "Video sumber sudah tidak ditemukan di lokasi semula. "
@@ -3128,7 +3131,7 @@ class MiniCutWindow(QMainWindow):
         return {"ok": True, "mode": str(self.export_mode.currentData())}
 
     def tool_save_project(self):
-        self._require_tool_media_ready()
+        self._require_tool_project_ready()
         if not self.model.source:
             raise ValueError("Belum ada proyek.")
         path = self.model.project_path
@@ -3223,7 +3226,7 @@ class MiniCutWindow(QMainWindow):
         return {"ok": True, "cancel_requested": running}
 
     def tool_undo(self):
-        self._require_tool_media_ready()
+        self._require_tool_project_ready()
         if not self.undo_stack:
             return {"ok": False, "error": "Belum ada perubahan yang bisa di-undo."}
         snapshot = self.undo_stack.pop()
