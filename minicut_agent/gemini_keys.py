@@ -146,9 +146,21 @@ class GeminiKeyStore:
             return
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
-            if isinstance(raw, dict) and isinstance(raw.get("keys"), list):
-                self.data = raw
+            if not isinstance(raw, dict) or not isinstance(raw.get("keys"), list):
+                raise ValueError("Format penyimpanan API key tidak valid.")
+            self.data = raw
         except Exception:
+            # Jangan membuang satu-satunya salinan jika file JSON rusak. Simpan
+            # backup byte-for-byte agar pengguna masih punya jalur pemulihan.
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            backup = self.path.with_name(
+                f"{self.path.stem}.corrupt-{stamp}{self.path.suffix}"
+            )
+            try:
+                if not backup.exists():
+                    backup.write_bytes(self.path.read_bytes())
+            except OSError:
+                pass
             self.data = {"version": 1, "active_id": None, "keys": []}
 
     def save(self):
