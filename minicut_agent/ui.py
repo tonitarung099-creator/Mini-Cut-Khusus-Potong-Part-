@@ -2953,6 +2953,11 @@ class MiniCutWindow(QMainWindow):
             )
         if not self.model.source:
             raise ValueError("Belum ada video.")
+        if not self.model.source.is_file():
+            raise FileNotFoundError(
+                "Video sumber sudah tidak ditemukan di lokasi semula. "
+                "Buka kembali video/proyek dan pilih file sumber yang benar."
+            )
 
     def tool_get_state(self):
         return {"ok": True, "state": self.model.state()}
