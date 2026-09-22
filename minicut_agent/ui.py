@@ -2588,6 +2588,14 @@ class MiniCutWindow(QMainWindow):
         if not self.model.source:
             QMessageBox.warning(self, APP_TITLE, "Buka video terlebih dahulu.")
             return
+        if not self.model.source.is_file():
+            QMessageBox.warning(
+                self,
+                APP_TITLE,
+                "Video sumber sudah tidak ditemukan. Buka kembali video/proyek "
+                "dan pilih file sumber yang benar.",
+            )
+            return
         if not self.srt_path or not self.srt_path.is_file():
             QMessageBox.warning(self, APP_TITLE, "Pilih file SRT yang sesuai dengan film.")
             return
