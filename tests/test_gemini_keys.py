@@ -49,5 +49,19 @@ class GeminiKeyStoreTests(unittest.TestCase):
         self.assertEqual(model_limits("gemini-2.5-flash-lite"), (10, 250000, 20))
 
 
+    def test_corrupt_store_is_backed_up_before_reset(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "keys.json"
+            broken = b"{not-valid-json"
+            path.write_bytes(broken)
+
+            store = GeminiKeyStore(path)
+
+            self.assertEqual(store.count(), 0)
+            backups = list(Path(td).glob("keys.corrupt-*.json"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].read_bytes(), broken)
+
+
 if __name__ == "__main__":
     unittest.main()
