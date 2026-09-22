@@ -12,6 +12,7 @@ Aplikasi desktop Windows untuk membagi film/video menjadi beberapa part dengan b
 - **SRT sebagai penjaga dialog** — membantu menghindari cut di tengah dialog/percakapan.
 - **Exact-frame resolver** — keputusan AI dikunci ke PTS frame asli dari master.
 - **SmartCut Frame Accurate** — default export; meminimalkan re-encode di sekitar titik potong.
+- **Portable FFmpeg + ffprobe** — build Windows membawa tool media sendiri; pengguna ZIP tidak perlu menginstal FFmpeg atau mengatur PATH.
 - **Fast Copy** — opsi ekspor cepat berbasis keyframe.
 - **Preview master-direct** — tidak membuat proxy. Backend utama mpv/libmpv dengan hardware decoding; Qt Multimedia menjadi fallback.
 - **Scrubbing dua tahap** — saat drag memakai seek cepat, saat dilepas dikunci ke posisi exact pada master asli.
@@ -64,8 +65,8 @@ Target 15 menit adalah patokan, bukan batas wajib. Perpindahan scene yang natura
 ## Kebutuhan lokal
 
 - Windows
-- **FFmpeg + ffprobe tersedia di PATH**
-- Untuk menjalankan dari source: Python 3.11
+- Untuk menjalankan langsung dari source: **FFmpeg + ffprobe tersedia di PATH**
+- Python 3.11
 
 ```powershell
 pip install -r requirements-dev.txt
@@ -74,7 +75,7 @@ python main.py
 
 ## Build Windows
 
-GitHub Actions otomatis menjalankan compile check, unit test, PyInstaller build, SmartCut smoke test, aplikasi smoke test, lalu mengunggah ZIP Windows sebagai artifact.
+GitHub Actions otomatis mengambil runtime FFmpeg/libmpv yang dipin, menjalankan compile check, unit test, PyInstaller build, SmartCut smoke test, aplikasi smoke test, lalu mengunggah ZIP Windows portable sebagai artifact.
 
 Build manual:
 
@@ -90,3 +91,4 @@ Gemini API key tidak dimasukkan ke source code atau cache proyek. Penyimpanan lo
 
 SmartCut digunakan sebagai engine frame-accurate cutting. Lihat `THIRD_PARTY_SMARTCUT.txt`.
 Preview memakai python-mpv + libmpv runtime terpisah. Lihat `THIRD_PARTY_MPV.txt` untuk sumber dan notice lisensi.
+Build portable juga menyertakan FFmpeg/ffprobe dari build Windows LGPL. Lihat `THIRD_PARTY_FFMPEG.txt`.
