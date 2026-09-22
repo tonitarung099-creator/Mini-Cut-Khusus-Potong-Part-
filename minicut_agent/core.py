@@ -337,7 +337,19 @@ class ProjectModel:
 
     def save(self, path: Path) -> None:
         path = path.resolve()
-        path.write_text(json.dumps(self.to_project_dict(path), ensure_ascii=False, indent=2), encoding="utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        payload = json.dumps(
+            self.to_project_dict(path),
+            ensure_ascii=False,
+            indent=2,
+        )
+        tmp.write_text(payload, encoding="utf-8")
+        try:
+            tmp.replace(path)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
         self.project_path = path
         self.dirty = False
 
