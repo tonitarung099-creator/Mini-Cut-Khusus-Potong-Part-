@@ -210,8 +210,11 @@ class PreviewPlayer(QObject):
             self._mpv.speed = float(self._rate)
             self._mpv.mute = bool(self._muted)
             if position_ms > 0:
+                generation = self._load_generation
                 QTimer.singleShot(
-                    120, lambda ms=position_ms: self.set_position(ms)
+                    120,
+                    lambda g=generation, p=path, ms=position_ms:
+                        self._apply_mpv_pending_seek(g, p, ms),
                 )
         except Exception as exc:
             self._activate_qt_fallback(
@@ -219,6 +222,20 @@ class PreviewPlayer(QObject):
                 position_ms=position_ms,
                 autoplay=autoplay,
             )
+
+    def _apply_mpv_pending_seek(
+        self,
+        generation: int,
+        path: Path,
+        position_ms: int,
+    ) -> None:
+        if (
+            generation != self._load_generation
+            or not self.using_mpv
+            or self._source != path
+        ):
+            return
+        self.set_position(position_ms)
 
     def _verify_mpv_load(self, generation: int, path: Path) -> None:
         if (
