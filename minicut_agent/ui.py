@@ -1261,19 +1261,26 @@ class MiniCutWindow(QMainWindow):
         source, data, project_path = self.pending_load
         self.model.reset(source, metadata)
         self.model.keyframes = keyframes
+        project_cut_warning = ""
         if data:
             cuts = []
             for item in data.get("cuts", []):
-                try:
-                    req = int(item.get("requested_ms", item.get("actual_ms", 0)))
-                    actual = int(item.get("actual_ms", req))
-                    cuts.append(CutPoint(req, actual))
-                except Exception:
-                    pass
+                req = int(item.get("requested_ms", item.get("actual_ms", 0)))
+                actual = int(item.get("actual_ms", req))
+                cuts.append(CutPoint(req, actual))
+            loaded_count = len(cuts)
             self.model.cuts = cuts
             self.model._normalize()
             self.model.project_path = project_path
-            self.model.dirty = False
+            normalized_count = len(self.model.cuts)
+            changed = normalized_count != loaded_count
+            self.model.dirty = changed
+            if changed:
+                project_cut_warning = (
+                    f"{loaded_count - normalized_count} cut proyek tidak lagi valid "
+                    "untuk durasi/video sumber saat ini dan tidak dimuat. "
+                    "File proyek asli belum diubah."
+                )
         self._switch_player_media(source, resume=False)
         self.timeline.setRange(0, max(0, self.model.duration_ms))
         self.undo_stack.clear()
@@ -1301,6 +1308,9 @@ class MiniCutWindow(QMainWindow):
         self.progress.setValue(0)
         self.status.setText(f"Siap · {source.name} · {len(keyframes)} keyframe")
         self._log(f"Video dibuka: {source}")
+        if project_cut_warning:
+            self._log("Peringatan proyek: " + project_cut_warning)
+            QMessageBox.warning(self, APP_TITLE, project_cut_warning)
         self._refresh()
         self._player_backend_changed(self.player.backend_name)
 
