@@ -1,0 +1,19 @@
+FFmpeg / ffprobe
+==================
+
+MiniCut Studio Agent portable distributions include FFmpeg and ffprobe.
+
+Windows binary build source:
+BtbN/FFmpeg-Builds
+https://github.com/BtbN/FFmpeg-Builds
+
+Pinned build:
+Tag: autobuild-2026-09-21-13-55
+Asset: ffmpeg-N-126734-ga9cbcc2bbb-win64-lgpl.zip
+SHA256: d9e6450b2078201e2ffb53d55f4e4e2657f71663fd8603e4d2bf94d8c814df3c
+
+This asset is the static Windows x86_64 LGPL variant published by the
+FFmpeg-Builds project. FFmpeg itself is a separate third-party project and is
+not owned by MiniCut. See the applicable license terms and notices:
+https://ffmpeg.org/legal.html
+https://github.com/BtbN/FFmpeg-Builds
