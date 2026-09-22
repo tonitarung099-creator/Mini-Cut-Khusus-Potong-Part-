@@ -20,6 +20,7 @@ copy /Y "THIRD_PARTY_MPV.txt" "dist\MiniCut Studio Agent\THIRD_PARTY_MPV.txt"
 copy /Y "ffmpeg-runtime\ffmpeg.exe" "dist\MiniCut Studio Agent\ffmpeg.exe"
 copy /Y "ffmpeg-runtime\ffprobe.exe" "dist\MiniCut Studio Agent\ffprobe.exe"
 copy /Y "THIRD_PARTY_FFMPEG.txt" "dist\MiniCut Studio Agent\THIRD_PARTY_FFMPEG.txt"
+if exist "ffmpeg-runtime\FFMPEG_BUILD_LICENSE.txt" copy /Y "ffmpeg-runtime\FFMPEG_BUILD_LICENSE.txt" "dist\MiniCut Studio Agent\FFMPEG_BUILD_LICENSE.txt"
 
 py -3.11 -m PyInstaller --noconfirm --clean --console --name "MiniCut MCP" mcp_server.py
 if errorlevel 1 exit /b %errorlevel%
