@@ -1041,7 +1041,7 @@ class MiniCutWindow(QMainWindow):
         self.gemini_test_btn.clicked.connect(self._test_gemini)
         self.film_analyze_btn.clicked.connect(self._start_film_cut)
         self.film_cancel_btn.clicked.connect(self._cancel_film_cut)
-        self.film_apply_btn.clicked.connect(self._apply_film_cut)
+        self.film_apply_btn.clicked.connect(lambda: self._apply_film_cut(record_undo=True))
         self.film_preview_btn.clicked.connect(self._preview_selected_film_cut)
         self.film_table.itemSelectionChanged.connect(self._film_cut_selection_changed)
         self.film_table.cellDoubleClicked.connect(self._preview_film_cut_row)
@@ -2884,7 +2884,7 @@ class MiniCutWindow(QMainWindow):
             self.film_cancel_btn.setEnabled(False)
             self.film_status_label.setText("Membatalkan setelah langkah aktif selesai…")
 
-    def _apply_film_cut(self) -> dict:
+    def _apply_film_cut(self, *, record_undo: bool = True) -> dict:
         if not self.film_cut_results:
             return {"ok": False, "error": "Belum ada hasil AI Film Cut untuk diterapkan."}
         review_count = sum(
@@ -2922,7 +2922,8 @@ class MiniCutWindow(QMainWindow):
         if not exact:
             QMessageBox.warning(self, APP_TITLE, "Tidak ada titik potong valid untuk diterapkan.")
             return {"ok": False, "error": "Tidak ada titik potong AI yang valid."}
-        self.undo_stack.append(before)
+        if record_undo:
+            self.undo_stack.append(before)
         self.model.cuts = exact
         self.model._normalize()
         self.model.dirty = True
@@ -3064,7 +3065,7 @@ class MiniCutWindow(QMainWindow):
 
     def tool_apply_film_cut(self):
         before = len(self.model.cuts)
-        result = dict(self._apply_film_cut() or {})
+        result = dict(self._apply_film_cut(record_undo=False) or {})
         after = len(self.model.cuts)
         result.update({
             "cuts_before": before,
@@ -3072,6 +3073,8 @@ class MiniCutWindow(QMainWindow):
             "parts": len(self.model.cuts) + 1 if self.model.source else 0,
         })
         result.setdefault("ok", False)
+        if result.get("ok"):
+            result["stop_plan"] = True
         return result
 
     def tool_preview_film_cut(self, row):
