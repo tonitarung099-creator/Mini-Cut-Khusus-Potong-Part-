@@ -76,8 +76,15 @@ class LocalBridge:
                     if outer.stopping and not call.event.is_set():
                         call.result.update({"ok": False, "error": "MiniCut sedang ditutup."})
                         call.event.set()
-                    if not call.event.wait(timeout=60):
-                        raise TimeoutError("MiniCut tidak merespons tool dalam 60 detik.")
+                    interactive_tools = {
+                        "open_video", "open_project", "choose_subtitle",
+                        "save_project", "export_all",
+                    }
+                    wait_seconds = 300 if tool in interactive_tools else 60
+                    if not call.event.wait(timeout=wait_seconds):
+                        raise TimeoutError(
+                            f"MiniCut tidak merespons tool dalam {wait_seconds} detik."
+                        )
                     status = 200 if call.result.get("ok", False) else 400
                     self._send(status, call.result)
                 except Exception as exc:
