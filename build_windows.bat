@@ -7,6 +7,9 @@ if errorlevel 1 exit /b %errorlevel%
 powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\fetch_mpv.ps1"
 if errorlevel 1 exit /b %errorlevel%
 
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\fetch_ffmpeg.ps1"
+if errorlevel 1 exit /b %errorlevel%
+
 py -3.11 -m compileall -q minicut_agent main.py mcp_server.py smartcut_runner.py
 if errorlevel 1 exit /b %errorlevel%
 
@@ -14,6 +17,9 @@ py -3.11 -m PyInstaller --noconfirm --clean --windowed --name "MiniCut Studio Ag
 if errorlevel 1 exit /b %errorlevel%
 for /R "mpv-runtime" %%F in (*.dll) do copy /Y "%%F" "dist\MiniCut Studio Agent\"
 copy /Y "THIRD_PARTY_MPV.txt" "dist\MiniCut Studio Agent\THIRD_PARTY_MPV.txt"
+copy /Y "ffmpeg-runtime\ffmpeg.exe" "dist\MiniCut Studio Agent\ffmpeg.exe"
+copy /Y "ffmpeg-runtime\ffprobe.exe" "dist\MiniCut Studio Agent\ffprobe.exe"
+copy /Y "THIRD_PARTY_FFMPEG.txt" "dist\MiniCut Studio Agent\THIRD_PARTY_FFMPEG.txt"
 
 py -3.11 -m PyInstaller --noconfirm --clean --console --name "MiniCut MCP" mcp_server.py
 if errorlevel 1 exit /b %errorlevel%
@@ -29,6 +35,11 @@ copy /Y "README.md" "dist\MiniCut Studio Agent\README_AGENT.md"
 if errorlevel 1 exit /b %errorlevel%
 
 echo.
+"dist\MiniCut Studio Agent\ffmpeg.exe" -version >nul
+if errorlevel 1 exit /b %errorlevel%
+"dist\MiniCut Studio Agent\ffprobe.exe" -version >nul
+if errorlevel 1 exit /b %errorlevel%
+
 echo Build selesai di dist\MiniCut Studio Agent
-echo FFmpeg/ffprobe harus tersedia di PATH.
+echo Paket portable sudah membawa FFmpeg dan ffprobe sendiri.
 pause
