@@ -1,4 +1,5 @@
 import queue
+import mcp_server
 import unittest
 from unittest.mock import patch
 
@@ -9,6 +10,17 @@ from minicut_agent.ui import MiniCutWindow
 
 
 class ToolManifestCoverageTests(unittest.TestCase):
+    def test_mcp_companion_matches_manifest(self):
+        names = {
+            spec["name"]
+            for spec in ToolRegistry(object()).manifest()["tools"]
+        }
+        missing = sorted(
+            name for name in names
+            if not callable(getattr(mcp_server, name, None))
+        )
+        self.assertEqual(missing, [])
+
     def test_apply_film_cut_is_treated_as_timeline_mutation(self):
         self.assertIn("apply_film_cut", MUTATING_TOOLS)
 
