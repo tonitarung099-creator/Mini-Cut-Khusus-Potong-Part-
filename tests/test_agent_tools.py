@@ -258,6 +258,7 @@ class ToolMediaReadyTests(unittest.TestCase):
 
     def test_media_tools_reject_without_loaded_video(self):
         class Host:
+            _require_tool_project_ready = MiniCutWindow._require_tool_project_ready
             _require_tool_media_ready = MiniCutWindow._require_tool_media_ready
 
         host = Host()
@@ -269,6 +270,7 @@ class ToolMediaReadyTests(unittest.TestCase):
 
     def test_media_tools_reject_when_source_file_disappeared(self):
         class Host:
+            _require_tool_project_ready = MiniCutWindow._require_tool_project_ready
             _require_tool_media_ready = MiniCutWindow._require_tool_media_ready
 
         host = Host()
