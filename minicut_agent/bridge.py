@@ -30,10 +30,12 @@ class LocalBridge:
         self.port = port
         self.httpd: ThreadingHTTPServer | None = None
         self.thread: threading.Thread | None = None
+        self.stopping = False
 
     def start(self) -> None:
         if self.httpd:
             return
+        self.stopping = False
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -67,8 +69,13 @@ class LocalBridge:
                     args = dict(payload.get("args") or {})
                     if not tool:
                         raise ValueError("tool wajib diisi")
+                    if outer.stopping:
+                        raise RuntimeError("MiniCut sedang ditutup.")
                     call = BridgeCall(tool=tool, args=args)
                     outer.calls.put(call)
+                    if outer.stopping and not call.event.is_set():
+                        call.result.update({"ok": False, "error": "MiniCut sedang ditutup."})
+                        call.event.set()
                     if not call.event.wait(timeout=60):
                         raise TimeoutError("MiniCut tidak merespons tool dalam 60 detik.")
                     status = 200 if call.result.get("ok", False) else 400
@@ -80,10 +87,22 @@ class LocalBridge:
                 return
 
         self.httpd = ThreadingHTTPServer((self.host, self.port), Handler)
+        self.httpd.daemon_threads = True
         self.thread = threading.Thread(target=self.httpd.serve_forever, name="MiniCutLocalBridge", daemon=True)
         self.thread.start()
 
+    def _cancel_pending_calls(self) -> None:
+        while True:
+            try:
+                call = self.calls.get_nowait()
+            except queue.Empty:
+                break
+            call.result.update({"ok": False, "error": "MiniCut sedang ditutup."})
+            call.event.set()
+
     def stop(self) -> None:
+        self.stopping = True
+        self._cancel_pending_calls()
         if self.httpd:
             self.httpd.shutdown()
             self.httpd.server_close()
