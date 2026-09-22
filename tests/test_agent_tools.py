@@ -1,7 +1,9 @@
+import queue
 import unittest
 from unittest.mock import patch
 
 from minicut_agent.agent import AgentPlanner, MUTATING_TOOLS, ToolRegistry
+from minicut_agent.bridge import BridgeCall
 from minicut_agent.core import CutPoint, ProjectModel
 from minicut_agent.ui import MiniCutWindow
 
@@ -169,6 +171,41 @@ class FilmCutApplyResultTests(unittest.TestCase):
             [cut.actual_ms for cut in host.model.cuts],
             [30_000],
         )
+
+
+class _BridgeDrainHost:
+    _drain_bridge = MiniCutWindow._drain_bridge
+    _snapshot = MiniCutWindow._snapshot
+
+    def __init__(self):
+        self.model = ProjectModel()
+        self.model.duration_ms = 120_000
+        self.bridge_queue = queue.Queue()
+        self.bridge_state = {}
+        self.undo_stack = []
+        self.registry = self
+
+    def state(self):
+        return self.model.state()
+
+    def execute(self, tool, args):
+        return {"ok": False, "cancelled": True}
+
+    def _refresh(self):
+        pass
+
+
+class BridgeUndoTests(unittest.TestCase):
+    def test_failed_bridge_mutation_does_not_create_undo_entry(self):
+        host = _BridgeDrainHost()
+        call = BridgeCall(tool="apply_film_cut", args={})
+        host.bridge_queue.put(call)
+
+        host._drain_bridge()
+
+        self.assertTrue(call.event.is_set())
+        self.assertFalse(call.result["ok"])
+        self.assertEqual(host.undo_stack, [])
 
 
 if __name__ == "__main__":
