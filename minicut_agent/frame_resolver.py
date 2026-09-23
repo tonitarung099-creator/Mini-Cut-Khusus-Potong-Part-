@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,94 @@ def probe_frame_timestamps(
             frames.append(ms)
     return sorted(set(frames))
 
+
+
+def probe_frame_points(
+    source: Path,
+    ffprobe: str,
+    start_ms: int,
+    end_ms: int,
+) -> list[dict[str, Any]]:
+    """Return real master frames with both UI milliseconds and exact PTS time.
+
+    time_ms is only for display/timeline bookkeeping. exact_time is a
+    rational number relative to the media start (for example 1001/24000) and
+    is preserved all the way to SmartCut so rendering does not move Gemini's
+    chosen frame because of millisecond rounding.
+    """
+    start_ms = max(0, int(start_ms))
+    end_ms = max(start_ms + 1, int(end_ms))
+    cmd = [
+        ffprobe,
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-read_intervals", f"{start_ms / 1000:.6f}%{end_ms / 1000:.6f}",
+        "-show_frames",
+        "-show_streams",
+        "-show_format",
+        "-show_entries",
+        (
+            "frame=best_effort_timestamp,best_effort_timestamp_time:"
+            "stream=time_base:format=start_time"
+        ),
+        "-of", "json",
+        str(source),
+    ]
+    result = run_text(cmd)
+    if result.returncode != 0:
+        raise RuntimeError(
+            result.stderr.strip() or "Frame PTS exact tidak dapat dibaca."
+        )
+
+    data = json.loads(result.stdout or "{}")
+    streams = data.get("streams") or []
+    if not streams:
+        raise RuntimeError("Time base video tidak tersedia.")
+    try:
+        time_base = Fraction(str(streams[0]["time_base"]))
+    except Exception as exc:
+        raise RuntimeError("Time base video tidak valid.") from exc
+
+    try:
+        start_time = Fraction(str((data.get("format") or {}).get("start_time") or "0"))
+    except Exception:
+        start_time = Fraction(0)
+
+    points: list[dict[str, Any]] = []
+    seen_exact: set[str] = set()
+    for frame in data.get("frames", []):
+        raw_pts = frame.get("best_effort_timestamp")
+        if raw_pts in (None, "N/A"):
+            continue
+        try:
+            relative = Fraction(int(raw_pts)) * time_base - start_time
+        except (TypeError, ValueError, ZeroDivisionError):
+            continue
+        if relative < 0:
+            continue
+
+        exact_time = (
+            str(relative.numerator)
+            if relative.denominator == 1
+            else f"{relative.numerator}/{relative.denominator}"
+        )
+        if exact_time in seen_exact:
+            continue
+
+        ms = int(round(float(relative) * 1000))
+        if start_ms - 1000 <= ms <= end_ms + 1000:
+            points.append({
+                "time_ms": ms,
+                "exact_time": exact_time,
+                "pts": int(raw_pts),
+                "time_base": str(time_base),
+            })
+            seen_exact.add(exact_time)
+
+    points.sort(
+        key=lambda item: Fraction(str(item["exact_time"]))
+    )
+    return points
 
 
 def resolve_requested_frame(
