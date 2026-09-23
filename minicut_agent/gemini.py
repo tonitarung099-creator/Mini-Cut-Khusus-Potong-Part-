@@ -433,11 +433,15 @@ Kembalikan HANYA JSON valid:
                 {
                     "time_ms": max(0, int(item["time_ms"])),
                     "exact_time": str(item["exact_time"]),
+                    "seek_time": str(
+                        item.get("seek_time")
+                        or max(0, int(item["time_ms"])) / 1000
+                    ),
                 }
                 for item in frame_points
                 if item.get("exact_time") not in (None, "")
             ],
-            key=lambda item: (item["time_ms"], item["exact_time"]),
+            key=lambda item: item["time_ms"],
         )
         if not points:
             raise ValueError("Tidak ada frame master untuk dipilih Gemini.")
@@ -582,6 +586,7 @@ Kembalikan HANYA JSON valid:
                 source,
                 time_ms,
                 EXACT_FRAME_WIDTH,
+                seek_time=str(point.get("seek_time") or ""),
             )
             parts.append({
                 "inline_data": {
@@ -983,12 +988,18 @@ def extract_frame_jpeg(
     source: Path,
     time_ms: int,
     width: int = FRAME_WIDTH,
+    seek_time: str | None = None,
 ) -> bytes:
+    seek_arg = (
+        str(seek_time).strip()
+        if seek_time not in (None, "")
+        else f"{max(0, time_ms) / 1000:.3f}"
+    )
     cmd = [
         ffmpeg,
         "-hide_banner",
         "-loglevel", "error",
-        "-ss", f"{max(0, time_ms) / 1000:.3f}",
+        "-ss", seek_arg,
         "-i", str(source),
         "-frames:v", "1",
         "-vf", f"scale={max(256, int(width))}:-2",
