@@ -3146,15 +3146,20 @@ class MiniCutWindow(QMainWindow):
         if not ffmpeg:
             raise RuntimeError("ffmpeg tidak ditemukan. Pastikan FFmpeg tersedia.")
         mode = str(self.export_mode.currentData() or "smartcut")
-        if mode == "fast" and self.model.cuts:
-            # Cut presisi dari Gemini tidak boleh digeser oleh segment/keyframe copy.
+        has_exact_cuts = any(
+            bool(str(c.exact_time or "").strip())
+            for c in self.model.cuts
+        )
+        if mode == "fast" and has_exact_cuts:
+            # Hanya cut exact dari Gemini yang wajib SmartCut. Cut keyframe biasa
+            # tetap boleh memakai Fast Copy.
             smart_index = self.export_mode.findData("smartcut")
             if smart_index >= 0:
                 self.export_mode.setCurrentIndex(smart_index)
             mode = "smartcut"
             self._log(
-                "Fast Copy dilewati: timeline memiliki cut presisi. "
-                "SmartCut dipakai agar timestamp Gemini tidak bergeser."
+                "Fast Copy dilewati: timeline memiliki cut PTS exact dari Gemini. "
+                "SmartCut dipakai agar frame pilihan Gemini tidak bergeser."
             )
         smartcut_exe = None
         if mode == "smartcut":
