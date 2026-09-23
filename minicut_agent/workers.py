@@ -38,7 +38,18 @@ class ExportWorker(QThread):
     failed = Signal(str)
     cancelled = Signal()
 
-    def __init__(self, ffmpeg: str, source: Path, output_dir: Path, base_name: str, cuts: list[int], duration_ms: int, mode: str = "fast", smartcut_exe: str | None = None):
+    def __init__(
+        self,
+        ffmpeg: str,
+        source: Path,
+        output_dir: Path,
+        base_name: str,
+        cuts: list[int],
+        duration_ms: int,
+        mode: str = "fast",
+        smartcut_exe: str | None = None,
+        exact_cuts: list[str | None] | None = None,
+    ):
         super().__init__()
         self.ffmpeg = ffmpeg
         self.source = source
@@ -48,6 +59,7 @@ class ExportWorker(QThread):
         self.duration_ms = duration_ms
         self.mode = mode
         self.smartcut_exe = smartcut_exe
+        self.exact_cuts = list(exact_cuts or [])
         self._cancel = False
 
     def cancel(self):
@@ -66,6 +78,7 @@ class ExportWorker(QThread):
                     self.base_name,
                     self.cuts,
                     self.duration_ms,
+                    cut_exact_times=self.exact_cuts,
                     progress=lambda p, t: self.progress_changed.emit(p, t),
                     log=lambda s: self.log_line.emit(s),
                     cancelled=lambda: self._cancel,
