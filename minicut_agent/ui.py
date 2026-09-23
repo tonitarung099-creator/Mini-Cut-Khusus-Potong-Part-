@@ -2359,7 +2359,6 @@ class MiniCutWindow(QMainWindow):
         self._gemini_chat_attempted_key_ids.clear()
         self.gemini_chat_status.setText("Gemini Chat gagal.")
         self._append_gemini_chat("system", "Gemini gagal: " + str(message))
-        self._gemini_chat_request_had_manual = False
         self._refresh_gemini_key_views()
         self._refresh_gemini_chat_controls()
 
