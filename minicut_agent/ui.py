@@ -92,7 +92,10 @@ class MiniCutWindow(QMainWindow):
         self._gemini_chat_pending_manual: list[dict] = []
         self._gemini_chat_deferred_actions: list[dict] = []
         self._gemini_chat_request_had_manual = False
+        self._gemini_chat_retry_payload: dict | None = None
+        self._gemini_chat_attempted_key_ids: set[str] = set()
         self._film_active_key_id: str | None = None
+        self._film_attempted_key_ids: set[str] = set()
         self._film_active_model: str = DEFAULT_MODEL
         self._film_usage_seen_requests = 0
         self._film_usage_seen_prompt_tokens = 0
@@ -1151,8 +1154,9 @@ class MiniCutWindow(QMainWindow):
         self.gemini_manager_note = QLabel(
             "Lihat Semua Status = hanya membaca catatan lokal dan tidak memakai request. "
             "Cek Semua API Online = mengirim 1 request tes per key secara bertahap dan dapat memakai kuota. "
-            "MiniCut tidak merotasi key otomatis untuk melewati kuota; pilih key SIAP dengan satu klik. "
-            "Pada limit sementara, key aktif akan retry/backoff terlebih dahulu."
+            "Jika API aktif terkena limit, MiniCut otomatis mencoba API lain yang belum limit "
+            "tanpa mengulang target AI Film Cut yang sudah tersimpan di cache. "
+            "Retry/backoff tetap dilakukan sebelum pindah key."
         )
         self.gemini_manager_note.setWordWrap(True)
         layout.addWidget(self.gemini_manager_note)
@@ -2183,14 +2187,21 @@ class MiniCutWindow(QMainWindow):
         self._gemini_chat_key_id = key_id
         self._gemini_chat_model = self._current_gemini_model()
         history_for_api = self._gemini_chat_history_data[:-1]
+        self._gemini_chat_attempted_key_ids = {str(key_id)}
+        self._gemini_chat_retry_payload = {
+            "text": text,
+            "state": self.model.state(),
+            "history": history_for_api,
+            "tool_manifest": self.registry.manifest(),
+        }
         self.gemini_chat_worker = GeminiChatWorker(
             secret,
             self._gemini_chat_model,
             text,
-            self.model.state(),
+            self._gemini_chat_retry_payload["state"],
             [],
             history_for_api,
-            self.registry.manifest(),
+            self._gemini_chat_retry_payload["tool_manifest"],
         )
         self.gemini_chat_worker.ready.connect(self._gemini_chat_ready)
         self.gemini_chat_worker.failed.connect(self._gemini_chat_failed)
@@ -2298,31 +2309,79 @@ class MiniCutWindow(QMainWindow):
                 f"Gemini siap · {self._gemini_chat_model}"
             )
         self._gemini_chat_request_had_manual = False
+        self._gemini_chat_retry_payload = None
+        self._gemini_chat_attempted_key_ids.clear()
         self._refresh_gemini_chat_controls()
 
     def _gemini_chat_failed(self, message: str):
         self.gemini_chat_worker = None
-        if self._gemini_chat_key_id:
+        current_id = self._gemini_chat_key_id
+        if current_id:
             self.gemini_keys.mark_error(
-                self._gemini_chat_key_id,
+                current_id,
                 self._gemini_chat_model,
                 message,
             )
-        self._gemini_chat_pending_manual = []
-        self._refresh_gemini_key_views()
+            self._gemini_chat_attempted_key_ids.add(str(current_id))
 
-        if self._gemini_chat_request_had_manual:
-            self._append_gemini_chat(
-                "system",
-                "Gemini sedang tidak tersedia/limit. Cut manual tidak dibatalkan karena "
-                "frame-lock berjalan lokal dan timestamp tetap dikunci.",
+        lower = str(message or "").lower()
+        limited_failure = (
+            "429" in lower
+            or "quota" in lower
+            or "rate limit" in lower
+            or "resource_exhausted" in lower
+        )
+        payload = self._gemini_chat_retry_payload
+
+        if limited_failure and payload:
+            candidates = self.gemini_keys.usable_key_ids(
+                self._gemini_chat_model,
+                exclude_ids=set(self._gemini_chat_attempted_key_ids),
             )
-            if not (self.manual_cut_worker and self.manual_cut_worker.isRunning()):
-                self.gemini_chat_status.setText("Gemini gagal · cut manual tetap lokal.")
-        else:
-            self.gemini_chat_status.setText("Gemini Chat gagal.")
-            self._append_gemini_chat("system", "Gemini gagal: " + str(message))
+            for next_id in candidates:
+                self._gemini_chat_attempted_key_ids.add(str(next_id))
+                try:
+                    secret = self.gemini_keys.get_secret(next_id)
+                except Exception as exc:
+                    self.gemini_keys.mark_error(
+                        next_id,
+                        self._gemini_chat_model,
+                        str(exc),
+                    )
+                    continue
+
+                self.gemini_keys.set_active(next_id)
+                self._gemini_chat_key_id = next_id
+                self.gemini_chat_status.setText(
+                    "API limit · pindah otomatis ke API berikutnya…"
+                )
+                self._append_gemini_chat(
+                    "system",
+                    "API Gemini aktif terkena limit. MiniCut mencoba API lain otomatis.",
+                )
+                self.gemini_chat_worker = GeminiChatWorker(
+                    secret,
+                    self._gemini_chat_model,
+                    str(payload["text"]),
+                    dict(payload["state"]),
+                    [],
+                    list(payload["history"]),
+                    dict(payload["tool_manifest"]),
+                )
+                self.gemini_chat_worker.ready.connect(self._gemini_chat_ready)
+                self.gemini_chat_worker.failed.connect(self._gemini_chat_failed)
+                self.gemini_chat_worker.start()
+                self._refresh_gemini_key_views()
+                self._refresh_gemini_chat_controls()
+                return
+
+        self._gemini_chat_pending_manual = []
+        self._gemini_chat_retry_payload = None
+        self._gemini_chat_attempted_key_ids.clear()
+        self.gemini_chat_status.setText("Gemini Chat gagal.")
+        self._append_gemini_chat("system", "Gemini gagal: " + str(message))
         self._gemini_chat_request_had_manual = False
+        self._refresh_gemini_key_views()
         self._refresh_gemini_chat_controls()
 
     def _start_manual_frame_cuts(self, locked: list[dict]):
