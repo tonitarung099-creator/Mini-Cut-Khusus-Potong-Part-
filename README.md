@@ -6,19 +6,19 @@ Aplikasi desktop Windows untuk membagi film/video menjadi beberapa part dengan b
 
 - **Gemini Chat Command Agent** — chat tidak lagi terbatas pada format cut manual. Gemini memahami bahasa natural lalu memakai tool MiniCut untuk timeline/playback/proyek. Contoh `cut 1 jam lebih 2 menit`, `bagi jadi 8 part`, atau perintah majemuk. Untuk cut waktu spesifik, timestamp yang dikeluarkan Gemini disimpan **apa adanya** tanpa snap/frame-lock lokal.
 - **Scene Boundary Analyzer** — grid target tetap absolut (mis. 15, 30, 45, 60 menit). Boundary natural boleh bergeser, tetapi tidak menggeser target berikutnya.
-- **Contact sheet + SRT sinkron** — untuk window awal ±2 menit, MiniCut membuat contact sheet lokal sekitar 1 frame/3 detik dan mengirim SRT pada blok waktu yang sama agar Gemini memahami visual + isi percakapan bersama-sama.
+- **Contact sheet + SRT sinkron** — untuk window awal ±2 menit, MiniCut membuat contact sheet lokal sekitar 1 frame/2 detik dan mengirim SRT pada blok waktu yang sama agar Gemini memahami visual + isi percakapan bersama-sama.
 - **NO CUT / Expand** — bila visual dan dialog masih satu rangkaian, Gemini boleh memilih NO CUT. MiniCut lalu menambah pencarian sekitar +3 menit tanpa memaksa cut dan tanpa menggeser grid target berikutnya.
-- **Refinement + Deep Check hemat** — setelah area boundary ditemukan, kandidat lokal diperiksa lebih rapat. Video visual pendek sekitar ±8 detik hanya dikirim jika boundary masih ambigu; audio tidak dikirim karena dialog dipahami dari SRT.
+- **Pemilihan frame final oleh Gemini** — setelah area boundary ditemukan, MiniCut membaca frame PTS nyata di sekitar boundary dan mengirim preview frame-frame itu ke Gemini dalam dua tahap (coarse lalu fine). MiniCut tidak memilih kandidat final secara lokal.
 - **SRT sebagai penjaga dialog** — membantu menghindari cut di tengah dialog/percakapan.
-- **Gemini exact-frame authority** — pada AI Film Cut, MiniCut hanya membaca daftar PTS frame master di sekitar boundary dan menampilkannya ke Gemini. Gemini memilih frame final; MiniCut tidak meranking, snap, atau menggeser pilihan itu lagi.
+- **Gemini exact-frame authority** — pada AI Film Cut, MiniCut hanya membaca daftar PTS frame master di sekitar boundary dan menampilkannya ke Gemini. Gemini memilih frame final; PTS rasional asli disimpan sampai SmartCut sehingga tidak dibulatkan ke milidetik untuk render.
 - **SmartCut Frame Accurate** — default export; meminimalkan re-encode di sekitar titik potong.
 - **Portable FFmpeg + ffprobe** — build Windows membawa tool media sendiri; pengguna ZIP tidak perlu menginstal FFmpeg atau mengatur PATH.
 - **Fast Copy** — opsi ekspor cepat berbasis keyframe.
 - **Preview master-direct** — tidak membuat proxy. Backend utama mpv/libmpv dengan hardware decoding; Qt Multimedia menjadi fallback.
 - **Scrubbing dua tahap** — saat drag memakai seek cepat, saat dilepas dikunci ke posisi exact pada master asli.
 - **Playback 0.5x–4x** dan tombol maju/mundur 1 frame berbasis PTS master.
-- **Gemini API Manager** — hingga 100 API key, disimpan lokal menggunakan Windows DPAPI.
-- **Cache/resume AI Film Cut**.
+- **Gemini API Manager** — hingga 100 API key, disimpan lokal menggunakan Windows DPAPI. Jika key aktif terkena limit, MiniCut dapat berpindah otomatis ke key lain yang masih dapat dipakai tanpa mencoba key yang sama berulang kali.
+- **Cache/resume AI Film Cut** — hasil CUT, NO CUT, dan grid yang dilewati dapat dipulihkan saat failover/retry agar target selesai tidak dianalisis ulang.
 - **MCP companion + local bridge** untuk integrasi agent eksternal.
 
 ## Cara kerja AI Film Cut
@@ -51,7 +51,7 @@ Target 15 menit adalah patokan, bukan batas wajib. Perpindahan scene yang natura
 - `minicut_agent/ui.py` — UI PySide6.
 - `minicut_agent/core.py` — proyek, FFmpeg, dan export.
 - `minicut_agent/preview_player.py` — playback master-direct mpv/libmpv + fallback Qt.
-- `minicut_agent/candidates.py` — utilitas kandidat lama/pendukung.
+- `minicut_agent/candidates.py` — utilitas kompatibilitas lama; tidak menentukan frame final AI Film Cut.
 - `minicut_agent/gemini.py` — pemahaman scene + pemilihan frame master final oleh Gemini.
 - `minicut_agent/frame_resolver.py` — pembacaan PTS frame master dan utilitas kompatibilitas.
 - `minicut_agent/gemini_keys.py` — manager API key lokal.
