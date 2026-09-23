@@ -6,7 +6,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from minicut_agent.core import (
-    ProjectModel, export_segments, export_segments_smartcut, load_project_file
+    CutPoint, ProjectModel, export_segments, export_segments_smartcut,
+    load_project_file
 )
 
 
@@ -187,6 +188,27 @@ class ProjectAtomicSaveTests(unittest.TestCase):
             data = json.loads(project.read_text(encoding="utf-8"))
             self.assertEqual(data["app"], "MiniCut Studio")
             self.assertFalse(model.dirty)
+
+
+class ExactPtsProjectPersistenceTests(unittest.TestCase):
+    def test_project_save_keeps_exact_pts_fraction(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "movie.mp4"
+            source.write_bytes(b"video")
+            project = root / "movie.minicut.json"
+
+            model = ProjectModel()
+            model.source = source.resolve()
+            model.duration_ms = 10_000
+            model.cuts = [CutPoint(42, 42, "1001/24000")]
+            model.save(project)
+
+            data, _source = load_project_file(project)
+            self.assertEqual(
+                data["cuts"][0]["exact_time"],
+                "1001/24000",
+            )
 
 
 class ProjectValidationTests(unittest.TestCase):
