@@ -869,8 +869,8 @@ class MiniCutWindow(QMainWindow):
 
         note = QLabel(
             "Gemini boleh merencanakan beberapa aksi sekaligus, tetapi hanya tool MiniCut yang "
-            "diizinkan yang dapat dijalankan. Cut waktu spesifik memakai frame-lock lokal; "
-            "ekspor SmartCut mempertahankan hasil frame-accurate."
+            "diizinkan yang dapat dijalankan. Timestamp cut dari Gemini dipakai apa adanya tanpa "
+            "frame-lock/snap lokal; SmartCut memakai titik yang sama saat render."
         )
         note.setObjectName("MutedLabel")
         note.setWordWrap(True)
@@ -898,9 +898,9 @@ class MiniCutWindow(QMainWindow):
 
         intro = QLabel(
             "Target tetap pada grid 15, 30, 45, 60 menit, dst. Contact sheet + SRT dipakai untuk "
-            "memahami konteks, lalu MiniCut mengambil kandidat TERDEKAT dari target dan membandingkan "
-            "hingga 4 kandidat dengan video pendek sekitar 20 detik + SRT. Kandidat lebih jauh hanya "
-            "boleh dipilih bila semua kandidat yang lebih dekat memang bukan boundary scene yang valid."
+            "memahami konteks. Setelah Gemini menemukan boundary, MiniCut hanya menampilkan frame-frame "
+            "PTS nyata dari master di sekitar boundary itu kepada Gemini. Gemini memilih frame final, "
+            "dan timestamp tersebut dipakai langsung tanpa kandidat/snap lokal."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -2152,46 +2152,15 @@ class MiniCutWindow(QMainWindow):
             QMessageBox.information(self, APP_TITLE, "Sedang mengunci timestamp ke frame master.")
             return
 
-        timestamps = extract_manual_timestamps(text)
-        manual_cut = bool(timestamps) and looks_like_manual_cut(text)
-        locked = [
-            {"raw": item.raw, "time_ms": item.time_ms, "time": item.time}
-            for item in timestamps
-        ]
-
-        if manual_cut and not self.model.source:
-            QMessageBox.warning(self, APP_TITLE, "Buka video terlebih dahulu sebelum memberi perintah cut.")
-            return
-        if manual_cut and not self.model.source.is_file():
-            QMessageBox.warning(
-                self,
-                APP_TITLE,
-                "Video sumber sudah tidak ditemukan. Buka kembali video/proyek "
-                "sebelum memberi perintah cut.",
-            )
-            return
-
         self._append_gemini_chat("user", text)
         self.gemini_chat_input.clear()
         self._gemini_chat_pending_manual = []
-        self._gemini_chat_request_had_manual = manual_cut
+        self._gemini_chat_request_had_manual = False
 
-        if manual_cut:
-            locked_text = ", ".join(item["time"] for item in locked)
-            self.gemini_chat_status.setText(
-                "Timestamp terkunci: " + locked_text + " · frame-lock lokal dimulai…"
-            )
-            self._start_manual_frame_cuts(locked)
-
+        # Semua keputusan cut melalui Gemini. Tidak ada parser/frame-lock lokal
+        # yang mendahului atau mengubah timestamp dari respons Gemini.
         key_id = self.gemini_keys.active_id()
         if not key_id:
-            if manual_cut:
-                self._append_gemini_chat(
-                    "system",
-                    "Belum ada API Gemini aktif. Cut manual tetap diproses lokal tanpa menunggu AI.",
-                )
-                self._refresh_gemini_chat_controls()
-                return
             QMessageBox.warning(
                 self, APP_TITLE, "Tambahkan Gemini API key terlebih dahulu."
             )
@@ -2201,13 +2170,6 @@ class MiniCutWindow(QMainWindow):
         try:
             secret = self.gemini_keys.get_secret(key_id)
         except Exception as exc:
-            if manual_cut:
-                self._append_gemini_chat(
-                    "system",
-                    "API Gemini tidak dapat dibaca, tetapi frame-lock manual tetap berjalan lokal.",
-                )
-                self._refresh_gemini_chat_controls()
-                return
             QMessageBox.critical(self, APP_TITLE, str(exc))
             return
 
@@ -2219,7 +2181,7 @@ class MiniCutWindow(QMainWindow):
             self._gemini_chat_model,
             text,
             self.model.state(),
-            locked if manual_cut else [],
+            [],
             history_for_api,
             self.registry.manifest(),
         )
@@ -2271,9 +2233,8 @@ class MiniCutWindow(QMainWindow):
         if not isinstance(raw_actions, list) or not raw_actions:
             return
 
-        manual_items: list[dict] = []
-        regular_steps: list[dict] = []
-        manual_aliases = {"manual_frame_cut", "frame_cut", "add_cut"}
+        steps: list[dict] = []
+        exact_aliases = {"manual_frame_cut", "frame_cut", "add_cut"}
 
         for action in raw_actions[:12]:
             if not isinstance(action, dict):
@@ -2283,11 +2244,7 @@ class MiniCutWindow(QMainWindow):
             if not isinstance(args, dict):
                 args = {}
 
-            if tool in manual_aliases:
-                # Explicit timestamps parsed locally are already running through
-                # frame-lock. Ignore Gemini's duplicate interpretation.
-                if self._gemini_chat_request_had_manual:
-                    continue
+            if tool in exact_aliases:
                 value = args.get("time_ms")
                 try:
                     if isinstance(value, str) and value.strip().isdigit():
@@ -2300,41 +2257,16 @@ class MiniCutWindow(QMainWindow):
                         f"Gemini memberi waktu cut yang tidak valid: {value!r}",
                     )
                     continue
-                manual_items.append({
-                    "raw": str(args.get("raw") or clock_text(time_ms)),
-                    "time_ms": int(time_ms),
-                    "time": clock_text(time_ms),
+                steps.append({
+                    "tool": "add_cut",
+                    "args": {"time_ms": int(time_ms)},
                 })
                 continue
 
-            regular_steps.append({"tool": tool, "args": dict(args)})
+            steps.append({"tool": tool, "args": dict(args)})
 
-        # If a frame-lock is part of the same request, actions after it are
-        # deferred until the exact frame has been resolved and applied.
-        frame_lock_active = bool(
-            self.manual_cut_worker and self.manual_cut_worker.isRunning()
-        )
-        if manual_items:
-            if not self.model.source:
-                self._append_gemini_chat(
-                    "system",
-                    "Gemini meminta cut, tetapi belum ada video yang dibuka.",
-                )
-            elif not frame_lock_active:
-                self._start_manual_frame_cuts(manual_items)
-                frame_lock_active = bool(
-                    self.manual_cut_worker and self.manual_cut_worker.isRunning()
-                )
-
-        if regular_steps:
-            if frame_lock_active:
-                self._gemini_chat_deferred_actions.extend(regular_steps)
-                self._append_gemini_chat(
-                    "system",
-                    "Aksi lanjutan menunggu frame-lock selesai.",
-                )
-            else:
-                self._apply_gemini_chat_steps(regular_steps)
+        if steps:
+            self._apply_gemini_chat_steps(steps)
 
     def _gemini_chat_ready(self, result: dict):
         self.gemini_chat_worker = None
@@ -2665,12 +2597,12 @@ class MiniCutWindow(QMainWindow):
         self.film_cut_worker.failed.connect(self._film_cut_failed)
         self.film_cut_worker.cancelled.connect(self._film_cut_cancelled)
         self.film_status_label.setText(
-            "Grid tetap 15/30/45/60… · contact sheet 1 frame/2 dtk + SRT · "
-            "nearest-valid → video kandidat + SRT → exact frame."
+            "Grid tetap 15/30/45/60… · contact sheet + SRT · "
+            "Gemini boundary → Gemini pilih PTS frame master final."
         )
         self._log(
-            "AI Film Cut: grid absolut → contact sheet+SRT → shortlist kandidat terdekat → "
-            "video pendek+SRT → nearest-valid → frame PTS nyata."
+            "AI Film Cut: grid absolut → Gemini pahami scene → "
+            "Gemini pilih frame master exact → tanpa snap lokal."
         )
         self.film_cut_worker.start()
 
@@ -2959,10 +2891,13 @@ class MiniCutWindow(QMainWindow):
         self.model.cuts = exact
         self.model._normalize()
         self.model.dirty = True
+        smart_index = self.export_mode.findData("smartcut")
+        if smart_index >= 0:
+            self.export_mode.setCurrentIndex(smart_index)
         self._refresh()
         self.film_apply_btn.setEnabled(False)
         self.film_status_label.setText(
-            f"{len(exact)} titik AI diterapkan ke timeline. Timestamp dipertahankan presisi."
+            f"{len(exact)} titik Gemini diterapkan ke timeline tanpa perubahan timestamp."
         )
         self._log(f"AI Film Cut diterapkan: {len(exact)} cut presisi.")
         return {"ok": True, "applied_cuts": len(exact)}
@@ -3069,9 +3004,20 @@ class MiniCutWindow(QMainWindow):
 
     def tool_add_cut(self, time_ms):
         self._require_tool_media_ready()
-        cut = self.model.add_cut(parse_time_ms(time_ms))
+        ms = self.model.clamp(parse_time_ms(time_ms))
+        cut = self.model.add_frame_cut(ms, ms)
+        smart_index = self.export_mode.findData("smartcut")
+        if smart_index >= 0:
+            self.export_mode.setCurrentIndex(smart_index)
         self._refresh()
-        return {"ok": True, "cut": asdict(cut), "parts": len(self.model.cuts) + 1}
+        return {
+            "ok": True,
+            "cut": asdict(cut),
+            "parts": len(self.model.cuts) + 1,
+            "exact_timestamp_preserved": True,
+            "frame_authority": "gemini",
+            "export_mode": "smartcut",
+        }
 
     def tool_remove_cut(self, index):
         self._require_tool_media_ready()
@@ -3183,19 +3129,15 @@ class MiniCutWindow(QMainWindow):
             raise RuntimeError("ffmpeg tidak ditemukan. Pastikan FFmpeg tersedia.")
         mode = str(self.export_mode.currentData() or "smartcut")
         if mode == "fast" and self.model.cuts:
-            keyframes = set(int(x) for x in self.model.keyframes)
-            has_exact_nonkey = any(
-                int(cut.actual_ms) not in keyframes for cut in self.model.cuts
+            # Cut presisi dari Gemini tidak boleh digeser oleh segment/keyframe copy.
+            smart_index = self.export_mode.findData("smartcut")
+            if smart_index >= 0:
+                self.export_mode.setCurrentIndex(smart_index)
+            mode = "smartcut"
+            self._log(
+                "Fast Copy dilewati: timeline memiliki cut presisi. "
+                "SmartCut dipakai agar timestamp Gemini tidak bergeser."
             )
-            if has_exact_nonkey:
-                answer = QMessageBox.question(
-                    self,
-                    APP_TITLE,
-                    "Timeline memiliki cut frame-accurate yang bukan keyframe. "
-                    "Fast Copy dapat menggeser titik potong. Tetap gunakan Fast Copy?",
-                )
-                if answer != QMessageBox.StandardButton.Yes:
-                    return {"ok": False, "cancelled": True}
         smartcut_exe = None
         if mode == "smartcut":
             smartcut_exe = find_tool("MiniCut SmartCut") or find_tool("smartcut")
