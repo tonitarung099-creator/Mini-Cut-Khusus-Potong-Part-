@@ -90,6 +90,29 @@ class GeminiKeyStoreTests(unittest.TestCase):
             self.assertNotIn(first, ids)
             self.assertNotIn(limited, ids)
 
+    def test_failover_skips_locally_exhausted_tpm_key(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = GeminiKeyStore(Path(td) / "keys.json")
+            exhausted = store.add("TPM Full", "P1", "AIza-tpmfull-1234567890")
+            spare = store.add("Spare", "P2", "AIza-tpmspare-1234567890")
+
+            store.record_usage(
+                exhausted,
+                "gemini-3.5-flash-lite",
+                requests=1,
+                prompt_tokens=250_000,
+                status="ready",
+            )
+            store.record_usage(
+                spare,
+                "gemini-3.5-flash-lite",
+                status="ready",
+            )
+
+            ids = store.usable_key_ids("gemini-3.5-flash-lite")
+            self.assertNotIn(exhausted, ids)
+            self.assertIn(spare, ids)
+
     def test_failover_skips_locally_exhausted_daily_key(self):
         with tempfile.TemporaryDirectory() as td:
             store = GeminiKeyStore(Path(td) / "keys.json")
