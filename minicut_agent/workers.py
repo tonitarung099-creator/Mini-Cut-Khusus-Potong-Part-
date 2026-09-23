@@ -10,7 +10,7 @@ from .candidates import target_times
 from .core import export_segments, export_segments_smartcut, probe_keyframes, probe_media
 from .gemini import GeminiClient
 from .gemini_keys import model_limits
-from .frame_resolver import probe_frame_points, resolve_requested_frame
+from .frame_resolver import probe_frame_points
 from .subtitles import SubtitleTrack, format_ms
 
 class AnalyzeWorker(QThread):
@@ -119,45 +119,6 @@ class AgentWorker(QThread):
             self.ready.emit(self.planner.remote_plan(self.endpoint, self.model, self.api_key, self.text, self.state))
         except Exception as exc:
             self.failed.emit(str(exc))
-
-class ManualFrameCutWorker(QThread):
-    progress_changed = Signal(int, int, str)
-    ready = Signal(list)
-    failed = Signal(str)
-
-    def __init__(
-        self,
-        source: Path,
-        ffprobe: str,
-        requested_times: list[dict],
-    ):
-        super().__init__()
-        self.source = source
-        self.ffprobe = ffprobe
-        self.requested_times = list(requested_times)
-
-    def run(self):
-        try:
-            results = []
-            total = len(self.requested_times)
-            for index, item in enumerate(self.requested_times, 1):
-                requested_ms = int(item["time_ms"])
-                self.progress_changed.emit(
-                    index,
-                    total,
-                    str(item.get("raw") or format_ms(requested_ms)),
-                )
-                resolved = resolve_requested_frame(
-                    self.source,
-                    self.ffprobe,
-                    requested_ms,
-                )
-                resolved["raw"] = str(item.get("raw") or "")
-                results.append(resolved)
-            self.ready.emit(results)
-        except Exception as exc:
-            self.failed.emit(str(exc))
-
 
 class GeminiChatWorker(QThread):
     ready = Signal(dict)
