@@ -406,6 +406,7 @@ class FilmCutCacheTests(unittest.TestCase):
             worker._save_cache([{
                 "target_ms": 60_000,
                 "selected_time_ms": 61_000,
+                "selected_time_exact": "61",
             }])
             self.assertIn(60_000, worker._load_cache())
 
