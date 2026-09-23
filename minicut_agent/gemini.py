@@ -419,62 +419,79 @@ Kembalikan HANYA JSON valid:
         source: Path,
         target_ms: int,
         boundary_hint_ms: int,
-        frame_times: list[int],
+        frame_points: list[dict[str, Any]],
         subtitles: SubtitleTrack | None,
     ) -> dict[str, Any]:
         """Let Gemini choose the final cut from real master-frame PTS values.
 
-        The local side only enumerates actual source frames and renders them for
-        Gemini. The returned PTS is one of those exact values and is never
-        snapped, re-ranked, or adjusted locally afterwards.
+        Local code only enumerates source frames and preserves their exact
+        rational PTS. Gemini chooses the final frame; that exact PTS is returned
+        unchanged for SmartCut export.
         """
-        times = sorted(set(max(0, int(x)) for x in frame_times))
-        if not times:
+        points = sorted(
+            [
+                {
+                    "time_ms": max(0, int(item["time_ms"])),
+                    "exact_time": str(item["exact_time"]),
+                }
+                for item in frame_points
+                if item.get("exact_time") not in (None, "")
+            ],
+            key=lambda item: (item["time_ms"], item["exact_time"]),
+        )
+        if not points:
             raise ValueError("Tidak ada frame master untuk dipilih Gemini.")
 
-        coarse_times = _evenly_sample_times(times, EXACT_COARSE_MAX_FRAMES)
+        coarse_points = _evenly_sample_times(points, EXACT_COARSE_MAX_FRAMES)
         coarse = self._choose_exact_frame_pass(
             ffmpeg,
             source,
             target_ms,
             boundary_hint_ms,
-            coarse_times,
+            coarse_points,
             subtitles,
             phase="coarse",
         )
         coarse_index = _frame_index(
-            coarse.get("selected_frame_index"), len(coarse_times)
+            coarse.get("selected_frame_index"), len(coarse_points)
         )
-        coarse_ms = coarse_times[coarse_index - 1]
+        coarse_point = coarse_points[coarse_index - 1]
+        coarse_ms = int(coarse_point["time_ms"])
 
         center = min(
-            range(len(times)),
-            key=lambda i: abs(times[i] - coarse_ms),
+            range(len(points)),
+            key=lambda i: (
+                abs(int(points[i]["time_ms"]) - coarse_ms),
+                i,
+            ),
         )
         half = EXACT_FINE_MAX_FRAMES // 2
-        start = max(0, center - half)
-        end = min(len(times), start + EXACT_FINE_MAX_FRAMES)
-        start = max(0, end - EXACT_FINE_MAX_FRAMES)
-        fine_times = times[start:end]
+        fine_start = max(0, center - half)
+        fine_end = min(len(points), fine_start + EXACT_FINE_MAX_FRAMES)
+        fine_start = max(0, fine_end - EXACT_FINE_MAX_FRAMES)
+        fine_points = points[fine_start:fine_end]
 
         fine = self._choose_exact_frame_pass(
             ffmpeg,
             source,
             target_ms,
             coarse_ms,
-            fine_times,
+            fine_points,
             subtitles,
             phase="fine",
         )
         fine_index = _frame_index(
-            fine.get("selected_frame_index"), len(fine_times)
+            fine.get("selected_frame_index"), len(fine_points)
         )
-        selected_ms = int(fine_times[fine_index - 1])
+        selected = fine_points[fine_index - 1]
+        selected_ms = int(selected["time_ms"])
+        selected_exact = str(selected["exact_time"])
 
         return {
             "decision": "CUT_FOUND",
             "selected_time_ms": selected_ms,
             "selected_time": format_ms(selected_ms),
+            "selected_time_exact": selected_exact,
             "selected_frame_index": fine_index,
             "confidence": float(fine.get("confidence") or 0.0),
             "needs_review": bool(fine.get("needs_review", False)),
@@ -489,8 +506,9 @@ Kembalikan HANYA JSON valid:
             "frame_selection": "gemini-exact-master-pts",
             "coarse_selected_ms": coarse_ms,
             "coarse_selected_time": format_ms(coarse_ms),
-            "exact_frame_pool_count": len(times),
-            "exact_frame_fine_count": len(fine_times),
+            "coarse_selected_time_exact": str(coarse_point["exact_time"]),
+            "exact_frame_pool_count": len(points),
+            "exact_frame_fine_count": len(fine_points),
             "usage": self.usage.__dict__.copy(),
         }
 
@@ -500,11 +518,11 @@ Kembalikan HANYA JSON valid:
         source: Path,
         target_ms: int,
         hint_ms: int,
-        frame_times: list[int],
+        frame_points: list[dict[str, Any]],
         subtitles: SubtitleTrack | None,
         phase: str,
     ) -> dict[str, Any]:
-        if not frame_times:
+        if not frame_points:
             raise ValueError("Daftar frame Gemini kosong.")
 
         srt_text = (
@@ -522,17 +540,19 @@ TARGET PART: {format_ms(target_ms)}
 PETUNJUK BOUNDARY: {format_ms(hint_ms)}
 TAHAP: {phase}
 
-Semua frame yang diberikan adalah frame nyata dari video master dan setiap frame memiliki
-MASTER_PTS_MS yang valid. Anda HARUS memilih tepat satu frame yang tersedia.
+Semua frame yang diberikan adalah frame nyata dari video master. Setiap frame membawa
+MASTER_PTS_EXACT yang berasal langsung dari time-base video. Anda HARUS memilih tepat
+satu frame yang tersedia.
 
 ATURAN:
 1. Gemini adalah penentu akhir titik potong. Pilih frame pertama yang paling tepat untuk
    memulai scene/konteks baru, sehingga Part sebelumnya berakhir tepat sebelum frame itu.
-2. Jangan memilih berdasarkan kedekatan waktu saja. Utamakan perpindahan scene/konteks yang natural.
+2. Jangan memilih berdasarkan kedekatan waktu saja. Utamakan perpindahan scene/konteks natural.
 3. Jangan memotong di tengah dialog, aksi-reaksi, gerakan penting, atau kontinuitas yang sama.
 4. Jangan mengarang timestamp dan jangan meminta aplikasi menggeser pilihan.
 5. selected_frame_index HARUS menunjuk salah satu frame yang benar-benar diberikan.
-6. Pada tahap fine, pilihan ini FINAL dan akan langsung dipakai untuk render tanpa snap lokal.
+6. Pada tahap fine, pilihan ini FINAL. MASTER_PTS_EXACT dari frame itu akan langsung
+   diteruskan ke SmartCut tanpa pembulatan milidetik atau snap lokal.
 
 SRT sekitar boundary:
 {srt_text or "(tidak ada subtitle)"}
@@ -548,17 +568,19 @@ Kembalikan HANYA JSON valid:
 """.strip()
 
         parts: list[dict[str, Any]] = [{"text": prompt}]
-        for i, time_ms in enumerate(frame_times, 1):
+        for i, point in enumerate(frame_points, 1):
+            time_ms = int(point["time_ms"])
+            exact_time = str(point["exact_time"])
             parts.append({
                 "text": (
-                    f"FRAME {i} | MASTER_PTS_MS={int(time_ms)} | "
-                    f"{format_ms(int(time_ms))}"
+                    f"FRAME {i} | MASTER_PTS_EXACT={exact_time} | "
+                    f"DISPLAY_MS={time_ms} | {format_ms(time_ms)}"
                 )
             })
             jpg = extract_frame_jpeg(
                 ffmpeg,
                 source,
-                int(time_ms),
+                time_ms,
                 EXACT_FRAME_WIDTH,
             )
             parts.append({
@@ -586,7 +608,7 @@ Kembalikan HANYA JSON valid:
                 "Gemini tidak mengembalikan JSON valid untuk pemilihan frame exact."
             ) from exc
 
-        _frame_index(result.get("selected_frame_index"), len(frame_times))
+        _frame_index(result.get("selected_frame_index"), len(frame_points))
         return result
 
     def verify_candidates(
@@ -832,7 +854,7 @@ def _frame_index(value: Any, count: int) -> int:
     return index
 
 
-def _evenly_sample_times(values: list[int], max_items: int) -> list[int]:
+def _evenly_sample_times(values: list[Any], max_items: int) -> list[Any]:
     values = list(values)
     max_items = max(1, int(max_items))
     if len(values) <= max_items:
