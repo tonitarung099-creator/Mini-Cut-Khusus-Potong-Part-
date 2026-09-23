@@ -25,12 +25,10 @@ from .core import (
 from .gemini import DEFAULT_MODEL
 from .frame_resolver import probe_frame_timestamps
 from .gemini_keys import GeminiKeyStore, MAX_GEMINI_KEYS
-from .manual_commands import extract_manual_timestamps, looks_like_manual_cut
 from .preview_player import PreviewPlayer
 from .workers import (
     AgentWorker, AnalyzeWorker, ExportWorker, FilmCutWorker,
-    GeminiBatchTestWorker, GeminiChatWorker, GeminiTestWorker,
-    ManualFrameCutWorker
+    GeminiBatchTestWorker, GeminiChatWorker, GeminiTestWorker
 )
 
 
@@ -74,7 +72,6 @@ class MiniCutWindow(QMainWindow):
         self.gemini_test_worker: GeminiTestWorker | None = None
         self.gemini_batch_worker: GeminiBatchTestWorker | None = None
         self.gemini_chat_worker: GeminiChatWorker | None = None
-        self.manual_cut_worker: ManualFrameCutWorker | None = None
         self.film_cut_worker: FilmCutWorker | None = None
         self._player_media_path: Path | None = None
         self._frame_pts_cache: list[int] = []
@@ -89,9 +86,6 @@ class MiniCutWindow(QMainWindow):
         self._gemini_chat_key_id: str | None = None
         self._gemini_chat_model: str = DEFAULT_MODEL
         self._gemini_chat_history_data: list[dict[str, str]] = []
-        self._gemini_chat_pending_manual: list[dict] = []
-        self._gemini_chat_deferred_actions: list[dict] = []
-        self._gemini_chat_request_had_manual = False
         self._gemini_chat_retry_payload: dict | None = None
         self._gemini_chat_attempted_key_ids: set[str] = set()
         self._film_active_key_id: str | None = None
@@ -1233,8 +1227,7 @@ class MiniCutWindow(QMainWindow):
                 return False
 
         if (
-            (self.manual_cut_worker and self.manual_cut_worker.isRunning())
-            or (self.gemini_chat_worker and self.gemini_chat_worker.isRunning())
+            (self.gemini_chat_worker and self.gemini_chat_worker.isRunning())
             or (self.film_cut_worker and self.film_cut_worker.isRunning())
             or (self.export_worker and self.export_worker.isRunning())
             or (self.analyze_worker and self.analyze_worker.isRunning())
@@ -2077,23 +2070,20 @@ class MiniCutWindow(QMainWindow):
     def _clear_gemini_chat(self):
         if self._gemini_chat_busy():
             QMessageBox.information(
-                self, APP_TITLE, "Tunggu proses Gemini/frame-lock selesai sebelum membersihkan chat."
+                self, APP_TITLE, "Tunggu proses Gemini selesai sebelum membersihkan chat."
             )
             return
         self._gemini_chat_history_data = []
-        self._gemini_chat_pending_manual = []
-        self._gemini_chat_deferred_actions = []
         if hasattr(self, "gemini_chat_history"):
             self.gemini_chat_history.clear()
         if hasattr(self, "gemini_chat_status"):
             self.gemini_chat_status.setText(
-                "Chat dibersihkan. Timestamp manual tetap tidak mengubah cut yang sudah ada."
+                "Chat dibersihkan. Cut yang sudah ada tidak berubah."
             )
 
     def _gemini_chat_busy(self) -> bool:
         return bool(
-            (self.gemini_chat_worker and self.gemini_chat_worker.isRunning())
-            or (self.manual_cut_worker and self.manual_cut_worker.isRunning())
+            self.gemini_chat_worker and self.gemini_chat_worker.isRunning()
         )
 
     def _refresh_gemini_chat_controls(self):
@@ -2102,9 +2092,7 @@ class MiniCutWindow(QMainWindow):
         busy = self._gemini_chat_busy()
         self.gemini_chat_send_btn.setEnabled(not busy)
         self.gemini_chat_clear_btn.setEnabled(not busy)
-        self.gemini_chat_undo_btn.setEnabled(
-            not (self.manual_cut_worker and self.manual_cut_worker.isRunning())
-        )
+        self.gemini_chat_undo_btn.setEnabled(not busy)
 
     def _send_gemini_chat(self):
         text = self.gemini_chat_input.toPlainText().strip()
@@ -2165,14 +2153,8 @@ class MiniCutWindow(QMainWindow):
         if self.gemini_chat_worker and self.gemini_chat_worker.isRunning():
             QMessageBox.information(self, APP_TITLE, "Gemini Chat sedang menjawab.")
             return
-        if self.manual_cut_worker and self.manual_cut_worker.isRunning():
-            QMessageBox.information(self, APP_TITLE, "Sedang mengunci timestamp ke frame master.")
-            return
-
         self._append_gemini_chat("user", text)
         self.gemini_chat_input.clear()
-        self._gemini_chat_pending_manual = []
-        self._gemini_chat_request_had_manual = False
 
         # Semua keputusan cut melalui Gemini. Tidak ada parser/frame-lock lokal
         # yang mendahului atau mengubah timestamp dari respons Gemini.
@@ -2246,12 +2228,6 @@ class MiniCutWindow(QMainWindow):
             )
             return None
 
-    def _run_deferred_gemini_chat_actions(self):
-        steps = list(self._gemini_chat_deferred_actions)
-        self._gemini_chat_deferred_actions = []
-        if steps:
-            self._apply_gemini_chat_steps(steps)
-
     def _execute_gemini_chat_actions(self, result: dict):
         raw_actions = result.get("actions") or []
         if not isinstance(raw_actions, list) or not raw_actions:
@@ -2310,11 +2286,9 @@ class MiniCutWindow(QMainWindow):
         self._execute_gemini_chat_actions(result)
         self._refresh_gemini_key_views()
 
-        if not (self.manual_cut_worker and self.manual_cut_worker.isRunning()):
-            self.gemini_chat_status.setText(
-                f"Gemini siap · {self._gemini_chat_model}"
-            )
-        self._gemini_chat_request_had_manual = False
+        self.gemini_chat_status.setText(
+            f"Gemini siap · {self._gemini_chat_model}"
+        )
         self._gemini_chat_retry_payload = None
         self._gemini_chat_attempted_key_ids.clear()
         self._refresh_gemini_chat_controls()
@@ -2381,140 +2355,12 @@ class MiniCutWindow(QMainWindow):
                 self._refresh_gemini_chat_controls()
                 return
 
-        self._gemini_chat_pending_manual = []
         self._gemini_chat_retry_payload = None
         self._gemini_chat_attempted_key_ids.clear()
         self.gemini_chat_status.setText("Gemini Chat gagal.")
         self._append_gemini_chat("system", "Gemini gagal: " + str(message))
         self._gemini_chat_request_had_manual = False
         self._refresh_gemini_key_views()
-        self._refresh_gemini_chat_controls()
-
-    def _start_manual_frame_cuts(self, locked: list[dict]):
-        if not self.model.source:
-            self._append_gemini_chat("system", "Buka video terlebih dahulu.")
-            return
-        if not self.model.source.is_file():
-            self._append_gemini_chat(
-                "system",
-                "Video sumber sudah tidak ditemukan. Buka kembali video/proyek.",
-            )
-            return
-        ffprobe = find_tool("ffprobe")
-        if not ffprobe:
-            self._append_gemini_chat(
-                "system",
-                "ffprobe tidak ditemukan. Frame master belum bisa dikunci.",
-            )
-            return
-
-        valid: list[dict] = []
-        outside: list[str] = []
-        for item in locked:
-            ms = int(item.get("time_ms") or 0)
-            if 0 < ms < self.model.duration_ms:
-                valid.append(dict(item))
-            else:
-                outside.append(str(item.get("raw") or clock_text(ms)))
-        if outside:
-            self._append_gemini_chat(
-                "system",
-                "Timestamp di luar durasi video: " + ", ".join(outside),
-            )
-        if not valid:
-            return
-
-        self.gemini_chat_status.setText(
-            f"Mengunci {len(valid)} timestamp ke frame master nyata…"
-        )
-        self.manual_cut_worker = ManualFrameCutWorker(
-            self.model.source,
-            ffprobe,
-            valid,
-        )
-        self.manual_cut_worker.progress_changed.connect(self._manual_cut_progress)
-        self.manual_cut_worker.ready.connect(self._manual_cut_ready)
-        self.manual_cut_worker.failed.connect(self._manual_cut_failed)
-        self.manual_cut_worker.start()
-        self._refresh_gemini_chat_controls()
-
-    def _manual_cut_progress(self, index: int, total: int, raw: str):
-        self.gemini_chat_status.setText(
-            f"Frame lock {index}/{total} · {raw}"
-        )
-
-    def _manual_cut_ready(self, resolved: list):
-        self.manual_cut_worker = None
-        before = self._snapshot()
-        added = []
-        skipped = []
-        try:
-            for item in resolved:
-                actual_ms = int(item["time_ms"])
-                if any(abs(c.actual_ms - actual_ms) < 2 for c in self.model.cuts):
-                    skipped.append(item)
-                    continue
-                cut = self.model.add_frame_cut(
-                    int(item["requested_ms"]),
-                    actual_ms,
-                )
-                added.append((cut, item))
-        except Exception as exc:
-            self._restore_snapshot(before)
-            self._append_gemini_chat(
-                "system",
-                "Cut manual dibatalkan karena frame lock gagal: " + str(exc),
-            )
-            if self._gemini_chat_deferred_actions:
-                self._append_gemini_chat(
-                    "system",
-                    "Aksi lanjutan dibatalkan karena frame-lock tidak berhasil.",
-                )
-                self._gemini_chat_deferred_actions = []
-            return
-
-        if added:
-            self.undo_stack.append(before)
-            self._refresh()
-            first_actual = int(added[0][0].actual_ms)
-            self.player.set_position(first_actual)
-            self.model.playhead_ms = first_actual
-
-        lines = []
-        for cut, item in added:
-            delta = int(item.get("frame_delta_ms") or 0)
-            sign = "+" if delta >= 0 else ""
-            lines.append(
-                f"{clock_text(cut.requested_ms)} → {clock_text(cut.actual_ms)} "
-                f"({sign}{delta} ms)"
-            )
-        if skipped:
-            lines.append(f"{len(skipped)} titik dilewati karena frame cut sudah ada.")
-
-        if lines:
-            self._append_gemini_chat(
-                "system",
-                "Cut frame-accurate diterapkan:\n" + "\n".join(lines),
-            )
-        self.gemini_chat_status.setText(
-            f"Selesai · {len(added)} cut dikunci ke PTS frame master."
-        )
-        self._refresh_gemini_chat_controls()
-        self._run_deferred_gemini_chat_actions()
-
-    def _manual_cut_failed(self, message: str):
-        self.manual_cut_worker = None
-        self.gemini_chat_status.setText("Frame lock manual gagal.")
-        self._append_gemini_chat(
-            "system",
-            "Gagal mengunci timestamp ke frame master: " + str(message),
-        )
-        if self._gemini_chat_deferred_actions:
-            self._append_gemini_chat(
-                "system",
-                "Aksi lanjutan dibatalkan karena bergantung pada frame-lock yang gagal.",
-            )
-            self._gemini_chat_deferred_actions = []
         self._refresh_gemini_chat_controls()
 
     # ---------- AI Film Cut / Gemini ----------
@@ -2659,9 +2505,6 @@ class MiniCutWindow(QMainWindow):
             return
         if self.gemini_test_worker and self.gemini_test_worker.isRunning():
             QMessageBox.information(self, APP_TITLE, "Tunggu Tes API selesai.")
-            return
-        if self.manual_cut_worker and self.manual_cut_worker.isRunning():
-            QMessageBox.information(self, APP_TITLE, "Tunggu frame-lock manual selesai.")
             return
         if self.gemini_batch_worker and self.gemini_batch_worker.isRunning():
             QMessageBox.information(
@@ -3285,8 +3128,6 @@ class MiniCutWindow(QMainWindow):
         self._require_tool_media_ready()
         if not self.model.source:
             raise ValueError("Belum ada video.")
-        if self.manual_cut_worker and self.manual_cut_worker.isRunning():
-            raise RuntimeError("Tunggu frame-lock manual selesai sebelum ekspor.")
         if self.film_cut_worker and self.film_cut_worker.isRunning():
             raise RuntimeError("Tunggu AI Film Cut selesai sebelum ekspor.")
         if self.export_worker and self.export_worker.isRunning():
@@ -3561,7 +3402,6 @@ class MiniCutWindow(QMainWindow):
             ("AI Agent", self.agent_worker),
             ("Tes Gemini", self.gemini_test_worker),
             ("Gemini Chat", self.gemini_chat_worker),
-            ("Frame-lock manual", self.manual_cut_worker),
         ):
             if worker and worker.isRunning():
                 blocking.append(name)
