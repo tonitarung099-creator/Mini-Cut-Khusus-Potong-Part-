@@ -330,6 +330,37 @@ class GeminiKeyStore:
             checked=True,
         )
 
+    def usable_key_ids(
+        self,
+        model: str,
+        exclude_ids: set[str] | None = None,
+    ) -> list[str]:
+        """Return failover candidates without spending an API request.
+
+        Ready keys are preferred, then untested keys. Keys already known to be
+        limited/error or exhausted by MiniCut's local counters are skipped.
+        """
+        excluded = {str(x) for x in (exclude_ids or set())}
+        candidates: list[tuple[int, int, int, int, str]] = []
+        for summary in self.summaries():
+            if summary.id in excluded:
+                continue
+            snap = self.snapshot(summary.id, model)
+            status = str(snap.get("status") or "unknown")
+            if status in {"limited", "error"}:
+                continue
+            rpm = int(snap.get("rpm_remaining") or 0)
+            tpm = int(snap.get("tpm_remaining") or 0)
+            rpd = int(snap.get("rpd_remaining") or 0)
+            if rpm <= 0 or rpd <= 0:
+                continue
+            # Prefer keys already proven ready, then maximize remaining quota.
+            ready_rank = 1 if status == "ready" else 0
+            candidates.append((ready_rank, rpd, tpm, rpm, summary.id))
+
+        candidates.sort(reverse=True)
+        return [item[-1] for item in candidates]
+
     def snapshot(self, key_id: str, model: str) -> dict[str, Any]:
         u = self._usage(key_id, model)
         now = time.time()
