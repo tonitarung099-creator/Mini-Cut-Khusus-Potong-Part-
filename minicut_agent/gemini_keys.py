@@ -321,7 +321,13 @@ class GeminiKeyStore:
         self.save()
 
     def mark_error(self, key_id: str, model: str, message: str):
-        limited = "429" in message or "rate limit" in message.lower() or "quota" in message.lower()
+        lower = str(message or "").lower()
+        limited = (
+            "429" in lower
+            or "rate limit" in lower
+            or "quota" in lower
+            or "resource_exhausted" in lower
+        )
         self.record_usage(
             key_id,
             model,
