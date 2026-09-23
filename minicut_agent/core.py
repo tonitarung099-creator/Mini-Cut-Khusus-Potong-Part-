@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass, asdict
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Callable
 
@@ -168,6 +169,7 @@ def probe_keyframes(source: Path, ffprobe: str) -> list[int]:
 class CutPoint:
     requested_ms: int
     actual_ms: int
+    exact_time: str | None = None
 
 class ProjectModel:
     def __init__(self):
@@ -233,7 +235,12 @@ class ProjectModel:
         self.dirty = True
         return cut
 
-    def add_frame_cut(self, requested_ms: int, actual_ms: int) -> CutPoint:
+    def add_frame_cut(
+        self,
+        requested_ms: int,
+        actual_ms: int,
+        exact_time: str | None = None,
+    ) -> CutPoint:
         """Add a cut at an already verified real frame PTS.
 
         This is used for SmartCut/manual frame-accurate cuts and intentionally
@@ -247,7 +254,11 @@ class ProjectModel:
             raise ValueError("Frame cut berada di luar durasi video.")
         if any(abs(c.actual_ms - actual) < 2 for c in self.cuts):
             raise ValueError("Cut pada frame tersebut sudah ada.")
-        cut = CutPoint(requested, actual)
+        cut = CutPoint(
+            requested,
+            actual,
+            str(exact_time).strip() if exact_time else None,
+        )
         self.cuts.append(cut)
         self._normalize()
         self.dirty = True
@@ -379,6 +390,12 @@ def load_project_file(path: Path) -> tuple[dict[str, Any], Path | None]:
             ) from exc
         item["requested_ms"] = requested
         item["actual_ms"] = actual
+        exact_time = item.get("exact_time")
+        item["exact_time"] = (
+            str(exact_time).strip()
+            if exact_time not in (None, "")
+            else None
+        )
 
     candidates = []
     # Relative source keeps a project folder portable after it is moved/copied.
@@ -563,6 +580,7 @@ def export_segments_smartcut(
     base_name: str,
     cut_times_ms: list[int],
     duration_ms: int,
+    cut_exact_times: list[str | None] | None = None,
     progress: Callable[[int, str], None] | None = None,
     log: Callable[[str], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
@@ -574,9 +592,41 @@ def export_segments_smartcut(
     """
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     ext = source.suffix or ".mp4"
-    marks = [0] + sorted(
-        set(int(v) for v in cut_times_ms if 0 < int(v) < int(duration_ms))
-    ) + [int(duration_ms)]
+
+    exact_values = list(cut_exact_times or [])
+    cut_specs: dict[int, str | None] = {}
+    for index, value in enumerate(cut_times_ms):
+        ms = int(value)
+        if not (0 < ms < int(duration_ms)):
+            continue
+        exact = (
+            str(exact_values[index]).strip()
+            if index < len(exact_values)
+            and exact_values[index] not in (None, "")
+            else None
+        )
+        if exact is not None:
+            try:
+                exact_fraction = Fraction(exact)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"PTS exact cut tidak valid pada {clock_text(ms)}: {exact}"
+                ) from exc
+            delta_ms = abs(float(exact_fraction) * 1000 - ms)
+            if delta_ms > 2.0:
+                raise RuntimeError(
+                    "PTS exact cut tidak cocok dengan timestamp timeline "
+                    f"({clock_text(ms)} vs {exact})."
+                )
+            # Normalize rational text but never round it to milliseconds.
+            exact = str(exact_fraction)
+        cut_specs[ms] = exact
+
+    marks: list[tuple[int, str | None]] = (
+        [(0, "start")]
+        + sorted(cut_specs.items(), key=lambda item: item[0])
+        + [(int(duration_ms), "end")]
+    )
     ranges = [(marks[i], marks[i + 1]) for i in range(len(marks) - 1)]
 
     stage_ctx = tempfile.TemporaryDirectory(
@@ -586,18 +636,20 @@ def export_segments_smartcut(
     staging_dir = Path(stage_ctx.name)
     created: list[Path] = []
     try:
-        for idx, (start_ms, end_ms) in enumerate(ranges, 1):
+        for idx, ((start_ms, start_exact), (end_ms, end_exact)) in enumerate(ranges, 1):
             if cancelled and cancelled():
                 raise InterruptedError("Ekspor dibatalkan.")
 
             out = staging_dir / f"{base_name}_Part-{idx:02d}{ext}"
             start_arg = (
-                "start" if start_ms <= 0 else f"{start_ms / 1000:.6f}"
+                "start"
+                if start_ms <= 0
+                else (start_exact or f"{start_ms / 1000:.6f}")
             )
             end_arg = (
                 "end"
                 if end_ms >= duration_ms
-                else f"{end_ms / 1000:.6f}"
+                else (end_exact or f"{end_ms / 1000:.6f}")
             )
             keep = f"{start_arg},{end_arg}"
             if progress:
