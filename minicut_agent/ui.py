@@ -90,6 +90,7 @@ class MiniCutWindow(QMainWindow):
         self._gemini_chat_attempted_key_ids: set[str] = set()
         self._film_active_key_id: str | None = None
         self._film_attempted_key_ids: set[str] = set()
+        self._film_run_config: dict | None = None
         self._film_active_model: str = DEFAULT_MODEL
         self._film_usage_seen_requests = 0
         self._film_usage_seen_prompt_tokens = 0
@@ -2457,6 +2458,7 @@ class MiniCutWindow(QMainWindow):
         self.film_cancel_btn.setEnabled(True)
         self.progress.setRange(0, 100)
 
+        config = dict(self._film_run_config or {})
         self.film_cut_worker = FilmCutWorker(
             ffmpeg=ffmpeg,
             ffprobe=ffprobe,
@@ -2465,11 +2467,11 @@ class MiniCutWindow(QMainWindow):
             srt_path=self.srt_path,
             api_key=key,
             model=self._film_active_model,
-            interval_ms=self.film_interval.value() * 60_000,
-            window_ms=self.film_window.value() * 60_000,
-            top_n=6,
-            use_cache=self.film_cache.isChecked(),
-            allow_deep_check=self.film_deep_check.isChecked(),
+            interval_ms=int(config.get("interval_ms") or 15 * 60_000),
+            window_ms=int(config.get("window_ms") or 2 * 60_000),
+            top_n=int(config.get("top_n") or 6),
+            use_cache=bool(config.get("use_cache", True)),
+            allow_deep_check=bool(config.get("allow_deep_check", True)),
         )
         self.film_cut_worker.progress_changed.connect(self._film_cut_progress)
         self.film_cut_worker.target_result.connect(self._film_cut_target_result)
@@ -2548,6 +2550,13 @@ class MiniCutWindow(QMainWindow):
 
         self._film_active_model = self._current_gemini_model()
         self._film_attempted_key_ids = {str(key_id)}
+        self._film_run_config = {
+            "interval_ms": self.film_interval.value() * 60_000,
+            "window_ms": self.film_window.value() * 60_000,
+            "top_n": 6,
+            "use_cache": self.film_cache.isChecked(),
+            "allow_deep_check": self.film_deep_check.isChecked(),
+        }
         self._launch_film_cut_worker(
             str(key_id),
             key,
@@ -2757,6 +2766,7 @@ class MiniCutWindow(QMainWindow):
             )
         self._refresh_gemini_key_views()
         self._film_attempted_key_ids.clear()
+        self._film_run_config = None
         self._log(f"AI Film Cut selesai: {len(results)} titik.")
 
     def _film_cut_failed(self, message: str):
@@ -2830,6 +2840,7 @@ class MiniCutWindow(QMainWindow):
             )
         self._refresh_gemini_key_views()
         self._film_attempted_key_ids.clear()
+        self._film_run_config = None
         QMessageBox.critical(self, APP_TITLE, "AI Film Cut gagal:\n" + message)
 
     def _film_cut_cancelled(self):
@@ -2839,6 +2850,7 @@ class MiniCutWindow(QMainWindow):
         self.status.setText("AI Film Cut dibatalkan.")
         self.film_status_label.setText("Dibatalkan. Hasil sebelumnya tetap tersimpan di cache.")
         self._film_attempted_key_ids.clear()
+        self._film_run_config = None
 
     def _cancel_film_cut(self):
         if self.film_cut_worker and self.film_cut_worker.isRunning():
