@@ -6,11 +6,11 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-from .candidates import find_candidates_for_target, proximity_shortlist, target_times
+from .candidates import target_times
 from .core import export_segments, export_segments_smartcut, probe_keyframes, probe_media
 from .gemini import GeminiClient
 from .gemini_keys import model_limits
-from .frame_resolver import resolve_requested_frame, resolve_semantic_frame
+from .frame_resolver import probe_frame_timestamps, resolve_requested_frame
 from .subtitles import SubtitleTrack, format_ms
 
 class AnalyzeWorker(QThread):
@@ -257,7 +257,7 @@ class FilmCutWorker(QThread):
     failed = Signal(str)
     cancelled = Signal()
 
-    CACHE_VERSION = 9
+    CACHE_VERSION = 10
 
     def __init__(
         self,
@@ -534,180 +534,78 @@ class FilmCutWorker(QThread):
 
                 hint_ms = int(broad.get("boundary_hint_ms") or target_ms)
 
-                # Untuk window AWAL, jangan biarkan hint contact-sheet mengunci
-                # refinement ke area yang terlalu jauh (contoh 16:18) dan menghapus
-                # kandidat lebih dekat (contoh 15:27). Refinement kembali ke target
-                # nominal ±window awal, lalu shortlist nearest-first.
-                if expanded_ms == 0:
-                    refine_center_ms = target_ms
-                    refine_window_ms = self.window_ms
-                    reference_ms = target_ms
-                    refine_label = (
-                        f"Target {format_ms(target_ms)} · bandingkan kandidat terdekat "
-                        f"dalam ±{self.window_ms // 60_000} menit"
-                    )
-                else:
-                    # Jika window awal memang tidak punya boundary valid dan pencarian
-                    # sudah diperluas, refinement cukup di sekitar hint perluasan.
-                    refine_center_ms = hint_ms
-                    refine_window_ms = self.refine_window_ms
-                    reference_ms = target_ms
-                    refine_label = (
-                        f"Target {format_ms(target_ms)} · refinement hasil perluasan "
-                        f"sekitar {format_ms(hint_ms)}"
-                    )
-
+                # FINAL AUTHORITY = GEMINI.
+                # Local code only enumerates REAL master-frame PTS around Gemini's
+                # rough boundary hint. It does not rank, snap, or move the cut.
                 self.progress_changed.emit(
-                    part_index, estimated_total, refine_label
+                    part_index,
+                    estimated_total,
+                    "Gemini memilih frame master final · tanpa snap lokal",
                 )
-
-                local_pool = find_candidates_for_target(
-                    self.ffmpeg,
+                radius_ms = 2_500
+                frame_start = max(
+                    previous_cut_ms + 1,
+                    hint_ms - radius_ms,
+                )
+                frame_end = min(
+                    self.duration_ms,
+                    hint_ms + radius_ms,
+                )
+                master_frames = probe_frame_timestamps(
                     self.source,
-                    refine_center_ms,
-                    refine_window_ms,
-                    subtitles,
-                    top_n=200,
+                    self.ffprobe,
+                    frame_start,
+                    frame_end,
                 )
-                local = proximity_shortlist(
-                    local_pool,
-                    reference_ms=reference_ms,
-                    max_n=min(4, max(1, self.top_n)),
-                )
-                if self._cancelled():
-                    return
+                if not master_frames:
+                    raise RuntimeError(
+                        "Frame master tidak ditemukan di sekitar boundary Gemini."
+                    )
 
-                verdict = client.verify_candidates(
+                exact = client.choose_exact_master_frame(
                     self.ffmpeg,
                     self.source,
                     target_ms,
-                    local,
+                    hint_ms,
+                    master_frames,
                     subtitles,
-                    allow_deep_check=self.allow_deep_check,
-                    force_deep_check=True,
                 )
                 self.usage_changed.emit(client.usage.__dict__.copy())
                 if self._cancelled():
                     return
 
-                if str(verdict.get("decision") or "").upper() == "NO_VALID_CANDIDATE":
-                    no_cut_result = {
-                        "target_ms": target_ms,
-                        "target": format_ms(target_ms),
-                        "selected_time_ms": 0,
-                        "selected_time": "",
-                        "decision": "NO_CUT",
-                        "needs_review": False,
-                        "confidence": float(verdict.get("confidence") or 0.0),
-                        "reason": str(
-                            verdict.get("reason")
-                            or "Tidak ada kandidat terdekat yang valid sebagai boundary scene."
-                        ),
-                        "expanded_ms": expanded_ms,
-                        "analysis_mode": (
-                            "fixed-grid+nearest-first+short-video+srt+no-valid-candidate"
-                        ),
-                        "local_candidates": [x.to_dict() for x in local],
-                        "cached": False,
-                        "usage": client.usage.__dict__.copy(),
-                    }
-                    results.append(no_cut_result)
-                    self._save_cache(results)
-                    self.target_result.emit(no_cut_result)
-                    self.usage_changed.emit(client.usage.__dict__.copy())
-                    continue
-
-                self.progress_changed.emit(
-                    part_index, estimated_total, "Mengunci ke frame PTS master"
-                )
-                resolved = resolve_semantic_frame(
-                    self.source,
-                    self.ffprobe,
-                    preferred_ms=int(
-                        verdict.get("preferred_time_ms")
-                        or verdict.get("candidate_time_ms")
-                        or hint_ms
-                    ),
-                    zone_start_ms=int(
-                        verdict.get("boundary_start_ms")
-                        or verdict.get("candidate_time_ms")
-                        or hint_ms
-                    ),
-                    zone_end_ms=int(
-                        verdict.get("boundary_end_ms")
-                        or verdict.get("candidate_time_ms")
-                        or hint_ms
-                    ),
-                    subtitles=subtitles,
-                    prefer_before_ms=verdict.get("new_content_starts_ms"),
-                )
-
-                selected_ms = int(resolved["time_ms"])
+                selected_ms = int(exact["selected_time_ms"])
                 if selected_ms <= previous_cut_ms:
                     raise RuntimeError(
-                        "Boundary AI tidak berada setelah cut sebelumnya."
+                        "Frame final Gemini tidak berada setelah cut sebelumnya."
+                    )
+                if selected_ms >= self.duration_ms:
+                    raise RuntimeError(
+                        "Frame final Gemini berada di luar durasi video."
                     )
 
-                # Boundary target ini juga tidak boleh masuk terlalu jauh ke area
-                # target nominal berikutnya.
-                if selected_ms >= search_ceiling:
-                    no_cut_result = {
-                        "target_ms": target_ms,
-                        "target": format_ms(target_ms),
-                        "selected_time_ms": 0,
-                        "selected_time": "",
-                        "decision": "NO_CUT",
-                        "needs_review": True,
-                        "confidence": float(verdict.get("confidence") or 0.0),
-                        "reason": (
-                            "Boundary hasil refinement sudah masuk area target berikutnya; "
-                            "cut tidak diterapkan pada target ini."
-                        ),
-                        "expanded_ms": expanded_ms,
-                        "analysis_mode": "fixed-grid-boundary-guard",
-                        "cached": False,
-                        "usage": client.usage.__dict__.copy(),
-                    }
-                    results.append(no_cut_result)
-                    self._save_cache(results)
-                    self.target_result.emit(no_cut_result)
-                    continue
-
-                verdict["target_ms"] = target_ms
-                verdict["target"] = format_ms(target_ms)
-                verdict["broad_window_start_ms"] = int(broad.get("window_start_ms") or 0)
-                verdict["broad_window_end_ms"] = int(broad.get("window_end_ms") or 0)
-                verdict["broad_decision"] = str(broad.get("decision") or "")
-                verdict["broad_reason"] = str(broad.get("reason") or "")
-                verdict["continuity_summary"] = str(
-                    broad.get("continuity_summary") or ""
-                )
+                verdict = dict(broad)
+                verdict.update(exact)
+                verdict["decision"] = "CUT_FOUND"
+                verdict["broad_decision"] = str(
+                    broad.get("decision") or "CUT_FOUND"
+                ).upper()
                 verdict["expanded_ms"] = expanded_ms
                 verdict["boundary_hint_ms"] = hint_ms
                 verdict["boundary_hint"] = format_ms(hint_ms)
-                verdict["semantic_preferred_ms"] = int(
-                    verdict.get("preferred_time_ms") or 0
-                )
-                verdict["semantic_preferred_time"] = format_ms(
-                    int(
-                        verdict.get("preferred_time_ms")
-                        or verdict.get("candidate_time_ms")
-                        or hint_ms
-                    )
-                )
+                verdict["semantic_preferred_ms"] = selected_ms
+                verdict["semantic_preferred_time"] = format_ms(selected_ms)
                 verdict["selected_time_ms"] = selected_ms
-                verdict["selected_time"] = str(resolved["time"])
-                verdict["frame_verified"] = bool(resolved.get("frame_verified"))
-                verdict["frame_delta_ms"] = int(
-                    resolved.get("frame_delta_ms") or 0
+                verdict["selected_time"] = format_ms(selected_ms)
+                verdict["frame_verified"] = True
+                verdict["frame_delta_ms"] = 0
+                verdict["frame_resolution_reason"] = (
+                    "Gemini memilih langsung PTS frame master final; "
+                    "MiniCut tidak melakukan snap atau penyesuaian lokal."
                 )
-                verdict["frame_resolution_reason"] = str(
-                    resolved.get("reason") or ""
-                )
-                verdict["local_candidates"] = [x.to_dict() for x in local]
+                verdict["local_candidates"] = []
                 verdict["analysis_mode"] = (
-                    "fixed-grid+contact-sheet+srt-expand+refine"
-                    + ("+deep-video" if verdict.get("deep_check_used") else "")
+                    "fixed-grid+contact-sheet+srt+gemini-exact-master-frame"
                 )
                 verdict["cached"] = False
                 verdict["usage"] = client.usage.__dict__.copy()
