@@ -336,6 +336,29 @@ class ExportCleanupTests(unittest.TestCase):
 
 
 class FilmCutCacheTests(unittest.TestCase):
+    def test_cache_without_exact_pts_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "movie.mp4"
+            srt = root / "movie.srt"
+            source.write_bytes(b"video")
+            srt.write_text("subtitle", encoding="utf-8")
+
+            worker = FilmCutWorker(
+                "ffmpeg",
+                "ffprobe",
+                source,
+                120_000,
+                srt,
+                "dummy-key",
+                "dummy-model",
+            )
+            worker._save_cache([{
+                "target_ms": 60_000,
+                "selected_time_ms": 61_000,
+            }])
+            self.assertEqual(worker._load_cache(), {})
+
     def test_cache_is_invalidated_when_srt_contents_change_at_same_path(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -356,6 +379,7 @@ class FilmCutCacheTests(unittest.TestCase):
             worker._save_cache([{
                 "target_ms": 60_000,
                 "selected_time_ms": 61_000,
+                "selected_time_exact": "61",
             }])
             self.assertIn(60_000, worker._load_cache())
 
