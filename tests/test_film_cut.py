@@ -217,6 +217,43 @@ class GeminiExactFrameAuthorityTests(unittest.TestCase):
         self.assertEqual(points[0]["time_ms"], 42)
         self.assertEqual(points[0]["exact_time"], "1001/24000")
 
+    def test_probe_frame_points_handles_nonzero_container_start(self):
+        clock_payload = {
+            "streams": [{"time_base": "1/1000"}],
+            "format": {"start_time": "5.000000"},
+        }
+        frame_payload = {
+            "frames": [{
+                "best_effort_timestamp": 5042,
+                "best_effort_timestamp_time": "5.042000",
+            }],
+        }
+        results = [
+            type("Result", (), {
+                "returncode": 0,
+                "stdout": __import__("json").dumps(clock_payload),
+                "stderr": "",
+            })(),
+            type("Result", (), {
+                "returncode": 0,
+                "stdout": __import__("json").dumps(frame_payload),
+                "stderr": "",
+            })(),
+        ]
+        with patch(
+            "minicut_agent.frame_resolver.run_text",
+            side_effect=results,
+        ):
+            points = probe_frame_points(
+                Path("movie.ts"),
+                "ffprobe",
+                0,
+                100,
+            )
+
+        self.assertEqual(points[0]["time_ms"], 42)
+        self.assertEqual(points[0]["exact_time"], "21/500")
+
     def test_even_sampling_keeps_real_values_only(self):
         frames = [1_000 + i * 41 for i in range(100)]
         sampled = _evenly_sample_times(frames, 13)
