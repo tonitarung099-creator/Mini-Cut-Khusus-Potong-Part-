@@ -34,6 +34,13 @@ DEEP_CHECK_WIDTH = 360
 DEEP_CHECK_FPS = 8
 SEMANTIC_ZONE_LIMIT_MS = 1500
 
+# Final cut authority: Gemini chooses from REAL master-frame PTS values.
+# Local code may enumerate/display frames, but it never moves Gemini's choice.
+EXACT_FRAME_RADIUS_MS = 2500
+EXACT_COARSE_MAX_FRAMES = 13
+EXACT_FINE_MAX_FRAMES = 31
+EXACT_FRAME_WIDTH = 384
+
 
 @dataclass
 class GeminiUsage:
@@ -142,10 +149,9 @@ class GeminiClient:
     ) -> dict[str, Any]:
         """Reasoning command agent for the MiniCut Chat tab.
 
-        Local explicit timestamps stay authoritative. For broader natural
-        language, Gemini may reason about the current project and propose one or
-        more MiniCut tool actions. The UI validates every action before running
-        it.
+        Gemini is the authority for chat-driven cuts. Explicit timestamps are
+        returned by Gemini and applied unchanged by MiniCut; there is no local
+        frame-lock/snap step after Gemini chooses the cut time.
         """
         locked = list(locked_timestamps or [])
         history = list(history or [])[-12:]
@@ -174,13 +180,14 @@ KONDISI PROYEK SAAT INI:
 TOOL MINICUT YANG TERSEDIA:
 {json.dumps(manifest, ensure_ascii=False)}
 
-TIMESTAMP EKSPLISIT YANG SUDAH DIKUNCI LOKAL:
+TIMESTAMP REFERENSI DARI UI (jika ada):
 {json.dumps(locked, ensure_ascii=False)}
 
 TOOL KHUSUS CHAT:
 - manual_frame_cut(time_ms:int, raw?:str)
-  Gunakan untuk cut tepat pada waktu yang diminta pengguna. UI akan mengunci waktu itu ke PTS
-  frame master nyata terdekat, bukan ke keyframe.
+  Gunakan untuk cut tepat pada waktu yang diminta pengguna. Nilai time_ms dari Gemini adalah FINAL:
+  MiniCut akan menyimpannya apa adanya tanpa snap keyframe, tanpa frame-lock lokal, dan tanpa
+  menggeser ke timestamp lain.
 
 ATURAN REASONING DAN EKSEKUSI:
 - Pikirkan kebutuhan pengguna secara internal sebelum memilih aksi. Jangan tampilkan chain-of-thought.
@@ -192,8 +199,9 @@ ATURAN REASONING DAN EKSEKUSI:
   "potong di 1 jam 12 detik" = satu manual_frame_cut pada 01:00:12.
   "potong tiap 1 jam 12 detik" = divide_interval dengan interval_ms 3.612.000.
   "setiap part 1 jam 12 detik" = divide_interval, BUKAN satu cut di 01:00:12.
-- Jika TIMESTAMP EKSPLISIT YANG SUDAH DIKUNCI LOKAL tidak kosong, jangan membuat ulang
-  manual_frame_cut untuk timestamp itu. MiniCut sudah memprosesnya lokal.
+- Jika ada timestamp eksplisit pada pesan pengguna, Gemini sendiri harus mengubahnya ke time_ms
+  integer yang tepat lalu mengeluarkan manual_frame_cut. Jangan mengubah nilainya untuk mencari
+  titik yang "lebih pas".
 - Pahami waktu natural Indonesia dan format ringkas/typo umum. Contoh:
   "1 jam lebih 2 menit" = 3.720.000 ms.
   "1 jam 2 menit 30 detik" = 3.750.000 ms.
@@ -203,8 +211,8 @@ ATURAN REASONING DAN EKSEKUSI:
   "90 detik" = 90.000 ms.
 - Waktu dan interval bersifat ARBITRER. Jangan pernah membatasi, membulatkan, atau mengubah
   permintaan pengguna menjadi kelipatan 5 detik, 10 detik, 1 menit, atau preset lain.
-- Jika pengguna meminta cut di 1 jam 12 detik, artinya tepat sekitar 01:00:12 pada timeline,
-  bukan 5 detik, bukan 01:00:00, dan bukan durasi preset. UI akan mengunci ke frame nyata terdekat.
+- Jika pengguna meminta cut di 1 jam 12 detik, artinya tepat 01:00:12.000 pada timeline,
+  bukan 5 detik, bukan 01:00:00, dan bukan durasi preset. MiniCut tidak akan menggesernya lagi.
 - time_ms dari manual_frame_cut harus integer MILIDETIK, bukan detik.
 - Selama tool tersedia, gunakan kemampuan MiniCut yang relevan: timeline, playback, seek, frame-step,
   cut, pembagian part, AI Film Cut, pilihan mode ekspor, simpan, ekspor, dan undo.
@@ -403,6 +411,182 @@ Kembalikan HANYA JSON valid:
             result["boundary_hint"] = format_ms(hint_ms)
 
         result["usage"] = self.usage.__dict__.copy()
+        return result
+
+    def choose_exact_master_frame(
+        self,
+        ffmpeg: str,
+        source: Path,
+        target_ms: int,
+        boundary_hint_ms: int,
+        frame_times: list[int],
+        subtitles: SubtitleTrack | None,
+    ) -> dict[str, Any]:
+        """Let Gemini choose the final cut from real master-frame PTS values.
+
+        The local side only enumerates actual source frames and renders them for
+        Gemini. The returned PTS is one of those exact values and is never
+        snapped, re-ranked, or adjusted locally afterwards.
+        """
+        times = sorted(set(max(0, int(x)) for x in frame_times))
+        if not times:
+            raise ValueError("Tidak ada frame master untuk dipilih Gemini.")
+
+        coarse_times = _evenly_sample_times(times, EXACT_COARSE_MAX_FRAMES)
+        coarse = self._choose_exact_frame_pass(
+            ffmpeg,
+            source,
+            target_ms,
+            boundary_hint_ms,
+            coarse_times,
+            subtitles,
+            phase="coarse",
+        )
+        coarse_index = _frame_index(
+            coarse.get("selected_frame_index"), len(coarse_times)
+        )
+        coarse_ms = coarse_times[coarse_index - 1]
+
+        center = min(
+            range(len(times)),
+            key=lambda i: abs(times[i] - coarse_ms),
+        )
+        half = EXACT_FINE_MAX_FRAMES // 2
+        start = max(0, center - half)
+        end = min(len(times), start + EXACT_FINE_MAX_FRAMES)
+        start = max(0, end - EXACT_FINE_MAX_FRAMES)
+        fine_times = times[start:end]
+
+        fine = self._choose_exact_frame_pass(
+            ffmpeg,
+            source,
+            target_ms,
+            coarse_ms,
+            fine_times,
+            subtitles,
+            phase="fine",
+        )
+        fine_index = _frame_index(
+            fine.get("selected_frame_index"), len(fine_times)
+        )
+        selected_ms = int(fine_times[fine_index - 1])
+
+        return {
+            "decision": "CUT_FOUND",
+            "selected_time_ms": selected_ms,
+            "selected_time": format_ms(selected_ms),
+            "selected_frame_index": fine_index,
+            "confidence": float(fine.get("confidence") or 0.0),
+            "needs_review": bool(fine.get("needs_review", False)),
+            "cut_intent": str(fine.get("cut_intent") or "scene_transition"),
+            "reason": str(
+                fine.get("reason")
+                or "Gemini memilih frame master final dari PTS yang tersedia."
+            ),
+            "frame_verified": True,
+            "frame_delta_ms": 0,
+            "frame_authority": "gemini",
+            "frame_selection": "gemini-exact-master-pts",
+            "coarse_selected_ms": coarse_ms,
+            "coarse_selected_time": format_ms(coarse_ms),
+            "exact_frame_pool_count": len(times),
+            "exact_frame_fine_count": len(fine_times),
+            "usage": self.usage.__dict__.copy(),
+        }
+
+    def _choose_exact_frame_pass(
+        self,
+        ffmpeg: str,
+        source: Path,
+        target_ms: int,
+        hint_ms: int,
+        frame_times: list[int],
+        subtitles: SubtitleTrack | None,
+        phase: str,
+    ) -> dict[str, Any]:
+        if not frame_times:
+            raise ValueError("Daftar frame Gemini kosong.")
+
+        srt_text = (
+            subtitles.nearby_text(
+                hint_ms,
+                radius_ms=5_000,
+                max_chars=2600,
+            )
+            if subtitles else ""
+        )
+        prompt = f"""
+Pilih FRAME MASTER FINAL untuk titik potong Part film.
+
+TARGET PART: {format_ms(target_ms)}
+PETUNJUK BOUNDARY: {format_ms(hint_ms)}
+TAHAP: {phase}
+
+Semua frame yang diberikan adalah frame nyata dari video master dan setiap frame memiliki
+MASTER_PTS_MS yang valid. Anda HARUS memilih tepat satu frame yang tersedia.
+
+ATURAN:
+1. Gemini adalah penentu akhir titik potong. Pilih frame pertama yang paling tepat untuk
+   memulai scene/konteks baru, sehingga Part sebelumnya berakhir tepat sebelum frame itu.
+2. Jangan memilih berdasarkan kedekatan waktu saja. Utamakan perpindahan scene/konteks yang natural.
+3. Jangan memotong di tengah dialog, aksi-reaksi, gerakan penting, atau kontinuitas yang sama.
+4. Jangan mengarang timestamp dan jangan meminta aplikasi menggeser pilihan.
+5. selected_frame_index HARUS menunjuk salah satu frame yang benar-benar diberikan.
+6. Pada tahap fine, pilihan ini FINAL dan akan langsung dipakai untuk render tanpa snap lokal.
+
+SRT sekitar boundary:
+{srt_text or "(tidak ada subtitle)"}
+
+Kembalikan HANYA JSON valid:
+{{
+  "selected_frame_index": 1,
+  "confidence": 0.0,
+  "needs_review": false,
+  "cut_intent": "scene_transition",
+  "reason": "alasan singkat dalam Bahasa Indonesia"
+}}
+""".strip()
+
+        parts: list[dict[str, Any]] = [{"text": prompt}]
+        for i, time_ms in enumerate(frame_times, 1):
+            parts.append({
+                "text": (
+                    f"FRAME {i} | MASTER_PTS_MS={int(time_ms)} | "
+                    f"{format_ms(int(time_ms))}"
+                )
+            })
+            jpg = extract_frame_jpeg(
+                ffmpeg,
+                source,
+                int(time_ms),
+                EXACT_FRAME_WIDTH,
+            )
+            parts.append({
+                "inline_data": {
+                    "mime_type": "image/jpeg",
+                    "data": base64.b64encode(jpg).decode("ascii"),
+                },
+                "media_resolution": {"level": "MEDIA_RESOLUTION_LOW"},
+            })
+
+        payload = {
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {
+                "temperature": 0,
+                "maxOutputTokens": 500,
+                "responseMimeType": "application/json",
+            },
+        }
+        data = self._post(payload, timeout=120)
+        raw = _response_text(data)
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                "Gemini tidak mengembalikan JSON valid untuk pemilihan frame exact."
+            ) from exc
+
+        _frame_index(result.get("selected_frame_index"), len(frame_times))
         return result
 
     def verify_candidates(
@@ -635,6 +819,33 @@ Kembalikan HANYA JSON valid:
         result["needs_review"] = bool(result.get("needs_review", False))
         result["deep_check_compared"] = candidate_indexes
         return result
+
+def _frame_index(value: Any, count: int) -> int:
+    try:
+        index = int(value)
+    except Exception as exc:
+        raise RuntimeError(
+            "Gemini tidak mengembalikan selected_frame_index."
+        ) from exc
+    if index < 1 or index > count:
+        raise RuntimeError("Gemini memilih frame di luar daftar master.")
+    return index
+
+
+def _evenly_sample_times(values: list[int], max_items: int) -> list[int]:
+    values = list(values)
+    max_items = max(1, int(max_items))
+    if len(values) <= max_items:
+        return values
+    if max_items == 1:
+        return [values[len(values) // 2]]
+    last = len(values) - 1
+    indexes = sorted({
+        round(i * last / (max_items - 1))
+        for i in range(max_items)
+    })
+    return [values[i] for i in indexes]
+
 
 def _candidate_index(value: Any, count: int) -> int:
     try:
