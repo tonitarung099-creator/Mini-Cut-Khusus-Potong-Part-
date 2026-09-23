@@ -2582,6 +2582,71 @@ class MiniCutWindow(QMainWindow):
         self._refresh_gemini_key_views()
         QMessageBox.critical(self, APP_TITLE, "Gemini API gagal:\n" + message)
 
+    def _launch_film_cut_worker(
+        self,
+        key_id: str,
+        key: str,
+        ffmpeg: str,
+        ffprobe: str,
+        *,
+        reset_ui: bool,
+    ) -> None:
+        self._film_active_key_id = str(key_id)
+        self._film_usage_seen_requests = 0
+        self._film_usage_seen_prompt_tokens = 0
+
+        if reset_ui:
+            self.film_cut_results = []
+            self.film_table.setRowCount(0)
+            self.film_apply_btn.setEnabled(False)
+            self.film_preview_btn.setEnabled(False)
+            self.progress.setValue(0)
+
+        self.film_analyze_btn.setEnabled(False)
+        self.film_cancel_btn.setEnabled(True)
+        self.progress.setRange(0, 100)
+
+        self.film_cut_worker = FilmCutWorker(
+            ffmpeg=ffmpeg,
+            ffprobe=ffprobe,
+            source=self.model.source,
+            duration_ms=self.model.duration_ms,
+            srt_path=self.srt_path,
+            api_key=key,
+            model=self._film_active_model,
+            interval_ms=self.film_interval.value() * 60_000,
+            window_ms=self.film_window.value() * 60_000,
+            top_n=6,
+            use_cache=self.film_cache.isChecked(),
+            allow_deep_check=self.film_deep_check.isChecked(),
+        )
+        self.film_cut_worker.progress_changed.connect(self._film_cut_progress)
+        self.film_cut_worker.target_result.connect(self._film_cut_target_result)
+        self.film_cut_worker.usage_changed.connect(self._film_cut_usage)
+        self.film_cut_worker.done.connect(self._film_cut_done)
+        self.film_cut_worker.failed.connect(self._film_cut_failed)
+        self.film_cut_worker.cancelled.connect(self._film_cut_cancelled)
+
+        if reset_ui:
+            self.film_status_label.setText(
+                "Grid tetap 15/30/45/60… · contact sheet + SRT · "
+                "Gemini boundary → Gemini pilih PTS frame master final."
+            )
+            self._log(
+                "AI Film Cut: grid absolut → Gemini pahami scene → "
+                "Gemini pilih frame master exact → tanpa snap lokal."
+            )
+        else:
+            self.film_status_label.setText(
+                "API sebelumnya limit · melanjutkan otomatis dengan API berikutnya "
+                "dari cache target yang sudah selesai…"
+            )
+            self._log(
+                "AI Film Cut: API limit → rotasi key otomatis → resume cache."
+            )
+
+        self.film_cut_worker.start()
+
     def _start_film_cut(self):
         if self.gemini_chat_worker and self.gemini_chat_worker.isRunning():
             QMessageBox.information(self, APP_TITLE, "Tunggu Gemini Chat selesai.")
@@ -2611,9 +2676,14 @@ class MiniCutWindow(QMainWindow):
         if not self.srt_path or not self.srt_path.is_file():
             QMessageBox.warning(self, APP_TITLE, "Pilih file SRT yang sesuai dengan film.")
             return
+        if self.film_cut_worker and self.film_cut_worker.isRunning():
+            return
+
         key_id = self.gemini_keys.active_id()
         if not key_id:
-            QMessageBox.warning(self, APP_TITLE, "Tambahkan dan pilih Gemini API key terlebih dahulu.")
+            QMessageBox.warning(
+                self, APP_TITLE, "Tambahkan dan pilih Gemini API key terlebih dahulu."
+            )
             self._open_gemini_manager()
             return
         try:
@@ -2621,56 +2691,22 @@ class MiniCutWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, APP_TITLE, str(exc))
             return
+
         ffmpeg = find_tool("ffmpeg")
         ffprobe = find_tool("ffprobe")
         if not ffmpeg or not ffprobe:
             QMessageBox.critical(self, APP_TITLE, "FFmpeg/ffprobe tidak ditemukan.")
             return
-        if self.film_cut_worker and self.film_cut_worker.isRunning():
-            return
 
-        self.film_cut_results = []
-        self._film_active_key_id = key_id
         self._film_active_model = self._current_gemini_model()
-        self._film_usage_seen_requests = 0
-        self._film_usage_seen_prompt_tokens = 0
-        self.film_table.setRowCount(0)
-        self.film_apply_btn.setEnabled(False)
-        self.film_preview_btn.setEnabled(False)
-        self.film_analyze_btn.setEnabled(False)
-        self.film_cancel_btn.setEnabled(True)
-        self.progress.setRange(0, 100)
-        self.progress.setValue(0)
-
-        self.film_cut_worker = FilmCutWorker(
-            ffmpeg=ffmpeg,
-            ffprobe=ffprobe,
-            source=self.model.source,
-            duration_ms=self.model.duration_ms,
-            srt_path=self.srt_path,
-            api_key=key,
-            model=self._film_active_model,
-            interval_ms=self.film_interval.value() * 60_000,
-            window_ms=self.film_window.value() * 60_000,
-            top_n=6,
-            use_cache=self.film_cache.isChecked(),
-            allow_deep_check=self.film_deep_check.isChecked(),
+        self._film_attempted_key_ids = {str(key_id)}
+        self._launch_film_cut_worker(
+            str(key_id),
+            key,
+            ffmpeg,
+            ffprobe,
+            reset_ui=True,
         )
-        self.film_cut_worker.progress_changed.connect(self._film_cut_progress)
-        self.film_cut_worker.target_result.connect(self._film_cut_target_result)
-        self.film_cut_worker.usage_changed.connect(self._film_cut_usage)
-        self.film_cut_worker.done.connect(self._film_cut_done)
-        self.film_cut_worker.failed.connect(self._film_cut_failed)
-        self.film_cut_worker.cancelled.connect(self._film_cut_cancelled)
-        self.film_status_label.setText(
-            "Grid tetap 15/30/45/60… · contact sheet + SRT · "
-            "Gemini boundary → Gemini pilih PTS frame master final."
-        )
-        self._log(
-            "AI Film Cut: grid absolut → Gemini pahami scene → "
-            "Gemini pilih frame master exact → tanpa snap lokal."
-        )
-        self.film_cut_worker.start()
 
     def _film_cut_progress(self, index: int, total: int, stage: str):
         pct = int(((index - 1) / max(1, total)) * 100)
@@ -2872,33 +2908,80 @@ class MiniCutWindow(QMainWindow):
                 checked=True,
             )
         self._refresh_gemini_key_views()
+        self._film_attempted_key_ids.clear()
         self._log(f"AI Film Cut selesai: {len(results)} titik.")
 
     def _film_cut_failed(self, message: str):
         self.film_cut_worker = None
-        self.film_analyze_btn.setEnabled(True)
-        self.film_cancel_btn.setEnabled(False)
-        self.status.setText("AI Film Cut gagal.")
-        self.film_status_label.setText("Analisis berhenti. Hasil yang sudah selesai disimpan di cache.")
-        lower = message.lower()
+        lower = str(message or "").lower()
         limited_failure = (
-            "429" in lower or "quota" in lower or "rate limit" in lower
+            "429" in lower
+            or "quota" in lower
+            or "rate limit" in lower
+            or "resource_exhausted" in lower
         )
-        if self._film_active_key_id and (
-            "gemini" in lower or limited_failure
-        ):
+
+        current_id = self._film_active_key_id
+        if current_id and ("gemini" in lower or limited_failure):
             self.gemini_keys.mark_error(
-                self._film_active_key_id,
+                current_id,
                 self._film_active_model,
                 message,
             )
+            self._film_attempted_key_ids.add(str(current_id))
+
+        if limited_failure:
+            candidates = self.gemini_keys.usable_key_ids(
+                self._film_active_model,
+                exclude_ids=set(self._film_attempted_key_ids),
+            )
+            ffmpeg = find_tool("ffmpeg")
+            ffprobe = find_tool("ffprobe")
+            if ffmpeg and ffprobe:
+                for next_id in candidates:
+                    self._film_attempted_key_ids.add(str(next_id))
+                    try:
+                        secret = self.gemini_keys.get_secret(next_id)
+                    except Exception as exc:
+                        self.gemini_keys.mark_error(
+                            next_id,
+                            self._film_active_model,
+                            str(exc),
+                        )
+                        continue
+
+                    self.gemini_keys.set_active(next_id)
+                    self._refresh_gemini_key_views()
+                    if hasattr(self, "gemini_batch_status_label"):
+                        self.gemini_batch_status_label.setText(
+                            "API terkena LIMIT · MiniCut pindah otomatis ke API berikutnya "
+                            "dan melanjutkan hasil cache."
+                        )
+                    self.status.setText(
+                        "AI Film Cut · rotasi API otomatis · melanjutkan…"
+                    )
+                    self._launch_film_cut_worker(
+                        next_id,
+                        secret,
+                        ffmpeg,
+                        ffprobe,
+                        reset_ui=False,
+                    )
+                    return
+
+        self.film_analyze_btn.setEnabled(True)
+        self.film_cancel_btn.setEnabled(False)
+        self.status.setText("AI Film Cut gagal.")
+        self.film_status_label.setText(
+            "Analisis berhenti. Hasil yang sudah selesai tetap tersimpan di cache."
+        )
         if limited_failure and hasattr(self, "gemini_batch_status_label"):
             self.gemini_batch_status_label.setText(
-                "API aktif terkena LIMIT setelah retry/backoff. "
-                "Buka tab Gemini API → Cek Semua API Online → Pakai API SIAP, "
-                "lalu jalankan Analisis Film lagi. Cache hasil sebelumnya tetap ada."
+                "Semua API yang dapat dipakai sudah dicoba atau sedang limit. "
+                "Hasil sebelumnya tetap aman di cache."
             )
         self._refresh_gemini_key_views()
+        self._film_attempted_key_ids.clear()
         QMessageBox.critical(self, APP_TITLE, "AI Film Cut gagal:\n" + message)
 
     def _film_cut_cancelled(self):
@@ -2907,6 +2990,7 @@ class MiniCutWindow(QMainWindow):
         self.film_cancel_btn.setEnabled(False)
         self.status.setText("AI Film Cut dibatalkan.")
         self.film_status_label.setText("Dibatalkan. Hasil sebelumnya tetap tersimpan di cache.")
+        self._film_attempted_key_ids.clear()
 
     def _cancel_film_cut(self):
         if self.film_cut_worker and self.film_cut_worker.isRunning():
