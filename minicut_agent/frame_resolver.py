@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal, localcontext
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -119,10 +120,22 @@ def probe_frame_points(
             continue
 
         ms = int(round(float(relative) * 1000))
-        if start_ms - 1000 <= ms <= end_ms + 1000:
+        if start_ms <= ms <= end_ms:
+            # Seek a tiny amount before the exact PTS for Gemini's JPEG preview.
+            # This avoids millisecond rounding skipping the selected frame.
+            seek_time = max(Fraction(0), relative - Fraction(1, 1_000_000))
+            with localcontext() as ctx:
+                ctx.prec = 30
+                seek_decimal = (
+                    Decimal(seek_time.numerator)
+                    / Decimal(seek_time.denominator)
+                )
+                seek_text = format(seek_decimal, "f")
+
             points.append({
                 "time_ms": ms,
                 "exact_time": exact_time,
+                "seek_time": seek_text,
                 "pts": int(raw_pts),
                 "time_base": str(time_base),
             })
