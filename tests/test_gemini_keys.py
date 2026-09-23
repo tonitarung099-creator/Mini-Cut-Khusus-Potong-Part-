@@ -44,6 +44,20 @@ class GeminiKeyStoreTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 store.add("Overflow", "Project", "AIza-overflow")
 
+    def test_resource_exhausted_is_recorded_as_limit(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = GeminiKeyStore(Path(td) / "keys.json")
+            key_id = store.add("Key", "Project", "AIza-resource-1234567890")
+            store.mark_error(
+                key_id,
+                "gemini-3.5-flash-lite",
+                "RESOURCE_EXHAUSTED: request limit reached",
+            )
+            self.assertEqual(
+                store.snapshot(key_id, "gemini-3.5-flash-lite")["status"],
+                "limited",
+            )
+
     def test_known_model_limits(self):
         self.assertEqual(model_limits("gemini-3.5-flash-lite"), (15, 250000, 500))
         self.assertEqual(model_limits("gemini-2.5-flash-lite"), (10, 250000, 20))
