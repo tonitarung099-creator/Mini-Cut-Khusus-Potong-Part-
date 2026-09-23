@@ -9,7 +9,9 @@ from minicut_agent.candidates import (
 from minicut_agent.core import ProjectModel, _clear_export_parts, _export_part_files
 from minicut_agent.frame_resolver import resolve_requested_frame, resolve_semantic_frame
 from minicut_agent.workers import FilmCutWorker
-from minicut_agent.gemini import _bounded_offset, _needs_deep_check
+from minicut_agent.gemini import (
+    GeminiClient, _bounded_offset, _evenly_sample_times, _needs_deep_check
+)
 from minicut_agent.manual_commands import extract_manual_timestamps, looks_like_manual_cut
 from minicut_agent.subtitles import SubtitleTrack
 
@@ -135,6 +137,47 @@ class ManualCommandTests(unittest.TestCase):
         cut = model.add_frame_cut(932_000, 932_013)
         self.assertEqual(cut.requested_ms, 932_000)
         self.assertEqual(cut.actual_ms, 932_013)
+
+
+class GeminiExactFrameAuthorityTests(unittest.TestCase):
+    def test_exact_frame_result_is_one_of_master_pts_and_has_zero_local_delta(self):
+        client = GeminiClient("dummy-key", "dummy-model")
+        frames = [10_000 + (i * 40) for i in range(80)]
+
+        with patch.object(
+            client,
+            "_choose_exact_frame_pass",
+            side_effect=[
+                {"selected_frame_index": 7, "confidence": 0.8},
+                {
+                    "selected_frame_index": 16,
+                    "confidence": 0.95,
+                    "needs_review": False,
+                    "reason": "frame transisi final",
+                },
+            ],
+        ):
+            result = client.choose_exact_master_frame(
+                "ffmpeg",
+                Path("movie.mp4"),
+                target_ms=10_000,
+                boundary_hint_ms=11_500,
+                frame_times=frames,
+                subtitles=None,
+            )
+
+        self.assertIn(result["selected_time_ms"], frames)
+        self.assertEqual(result["frame_delta_ms"], 0)
+        self.assertEqual(result["frame_authority"], "gemini")
+        self.assertEqual(result["frame_selection"], "gemini-exact-master-pts")
+
+    def test_even_sampling_keeps_real_values_only(self):
+        frames = [1_000 + i * 41 for i in range(100)]
+        sampled = _evenly_sample_times(frames, 13)
+        self.assertLessEqual(len(sampled), 13)
+        self.assertEqual(sampled[0], frames[0])
+        self.assertEqual(sampled[-1], frames[-1])
+        self.assertTrue(all(value in frames for value in sampled))
 
 
 class SemanticCutTests(unittest.TestCase):
