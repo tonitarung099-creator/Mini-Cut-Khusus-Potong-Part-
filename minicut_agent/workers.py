@@ -10,7 +10,7 @@ from .candidates import target_times
 from .core import export_segments, export_segments_smartcut, probe_keyframes, probe_media
 from .gemini import GeminiClient
 from .gemini_keys import model_limits
-from .frame_resolver import probe_frame_timestamps, resolve_requested_frame
+from .frame_resolver import probe_frame_points, resolve_requested_frame
 from .subtitles import SubtitleTrack, format_ms
 
 class AnalyzeWorker(QThread):
@@ -551,7 +551,7 @@ class FilmCutWorker(QThread):
                     self.duration_ms,
                     hint_ms + radius_ms,
                 )
-                master_frames = probe_frame_timestamps(
+                master_frames = probe_frame_points(
                     self.source,
                     self.ffprobe,
                     frame_start,
