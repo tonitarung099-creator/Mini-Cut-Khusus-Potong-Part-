@@ -49,6 +49,55 @@ class GeminiKeyStoreTests(unittest.TestCase):
         self.assertEqual(model_limits("gemini-2.5-flash-lite"), (10, 250000, 20))
 
 
+    def test_failover_prefers_ready_key_and_skips_limited_or_excluded(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = GeminiKeyStore(Path(td) / "keys.json")
+            first = store.add("First", "P1", "AIza-first-1234567890")
+            ready = store.add("Ready", "P2", "AIza-ready-1234567890")
+            limited = store.add("Limited", "P3", "AIza-limit-1234567890")
+
+            store.record_usage(
+                ready,
+                "gemini-3.5-flash-lite",
+                status="ready",
+                checked=True,
+            )
+            store.mark_error(
+                limited,
+                "gemini-3.5-flash-lite",
+                "Gemini API 429: quota exhausted",
+            )
+
+            ids = store.usable_key_ids(
+                "gemini-3.5-flash-lite",
+                exclude_ids={first},
+            )
+            self.assertEqual(ids[0], ready)
+            self.assertNotIn(first, ids)
+            self.assertNotIn(limited, ids)
+
+    def test_failover_skips_locally_exhausted_daily_key(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = GeminiKeyStore(Path(td) / "keys.json")
+            exhausted = store.add("Full", "P1", "AIza-full-1234567890")
+            spare = store.add("Spare", "P2", "AIza-spare-1234567890")
+
+            store.record_usage(
+                exhausted,
+                "gemini-2.5-flash-lite",
+                requests=20,
+                status="ready",
+            )
+            store.record_usage(
+                spare,
+                "gemini-2.5-flash-lite",
+                status="ready",
+            )
+
+            ids = store.usable_key_ids("gemini-2.5-flash-lite")
+            self.assertNotIn(exhausted, ids)
+            self.assertIn(spare, ids)
+
     def test_corrupt_store_is_backed_up_before_reset(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "keys.json"
