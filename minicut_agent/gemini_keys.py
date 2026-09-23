@@ -358,7 +358,7 @@ class GeminiKeyStore:
             rpm = int(snap.get("rpm_remaining") or 0)
             tpm = int(snap.get("tpm_remaining") or 0)
             rpd = int(snap.get("rpd_remaining") or 0)
-            if rpm <= 0 or rpd <= 0:
+            if rpm <= 0 or tpm <= 0 or rpd <= 0:
                 continue
             # Prefer keys already proven ready, then maximize remaining quota.
             ready_rank = 1 if status == "ready" else 0
