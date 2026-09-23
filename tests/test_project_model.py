@@ -5,7 +5,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from minicut_agent.core import ProjectModel, export_segments, load_project_file
+from minicut_agent.core import (
+    ProjectModel, export_segments, export_segments_smartcut, load_project_file
+)
 
 
 class ProjectPortabilityTests(unittest.TestCase):
@@ -126,6 +128,44 @@ class FastExportZeroCutTests(unittest.TestCase):
                     [1_000],
                     2_000,
                 )
+
+
+class SmartCutExactPtsTests(unittest.TestCase):
+    def test_smartcut_receives_exact_rational_pts_without_ms_rounding(self):
+        captured = []
+
+        class DummyProc:
+            def __init__(self, cmd):
+                captured.append(cmd)
+                Path(cmd[2]).write_bytes(b"part")
+                self.returncode = 0
+
+            def poll(self):
+                return 0
+
+        with tempfile.TemporaryDirectory() as td, patch(
+            "minicut_agent.core.subprocess.Popen",
+            side_effect=lambda cmd, **kwargs: DummyProc(cmd),
+        ):
+            count, _size = export_segments_smartcut(
+                "smartcut",
+                Path(td) / "movie.mp4",
+                Path(td) / "parts",
+                "movie",
+                [42],
+                1000,
+                cut_exact_times=["1001/24000"],
+            )
+
+        self.assertEqual(count, 2)
+        keeps = [
+            cmd[cmd.index("--keep") + 1]
+            for cmd in captured
+        ]
+        self.assertEqual(
+            keeps,
+            ["start,1001/24000", "1001/24000,end"],
+        )
 
 
 class ProjectAtomicSaveTests(unittest.TestCase):
