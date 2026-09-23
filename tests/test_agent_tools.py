@@ -189,6 +189,50 @@ class FilmCutApplyResultTests(unittest.TestCase):
         )
 
 
+class _ExportModeStub:
+    def __init__(self):
+        self.value = "fast"
+
+    def findData(self, value):
+        return 0 if value == "smartcut" else -1
+
+    def setCurrentIndex(self, _index):
+        self.value = "smartcut"
+
+
+class GeminiExactCutToolTests(unittest.TestCase):
+    def test_gemini_add_cut_preserves_exact_timestamp_and_forces_smartcut(self):
+        import tempfile
+        from pathlib import Path
+
+        class Host:
+            _require_tool_project_ready = MiniCutWindow._require_tool_project_ready
+            _require_tool_media_ready = MiniCutWindow._require_tool_media_ready
+            tool_add_cut = MiniCutWindow.tool_add_cut
+
+            def _refresh(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "movie.mp4"
+            source.write_bytes(b"video")
+
+            host = Host()
+            host.model = ProjectModel()
+            host.model.source = source
+            host.model.duration_ms = 120_000
+            host.analyze_worker = None
+            host.export_mode = _ExportModeStub()
+
+            result = host.tool_add_cut(61_237)
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["exact_timestamp_preserved"])
+        self.assertEqual(host.model.cuts[0].requested_ms, 61_237)
+        self.assertEqual(host.model.cuts[0].actual_ms, 61_237)
+        self.assertEqual(host.export_mode.value, "smartcut")
+
+
 class _BridgeDrainHost:
     _drain_bridge = MiniCutWindow._drain_bridge
     _snapshot = MiniCutWindow._snapshot
