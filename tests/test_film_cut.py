@@ -7,7 +7,9 @@ from minicut_agent.candidates import (
     LocalCandidate, proximity_shortlist, rank_candidates, target_times
 )
 from minicut_agent.core import ProjectModel, _clear_export_parts, _export_part_files
-from minicut_agent.frame_resolver import resolve_requested_frame, resolve_semantic_frame
+from minicut_agent.frame_resolver import (
+    probe_frame_points, resolve_requested_frame, resolve_semantic_frame
+)
 from minicut_agent.workers import FilmCutWorker
 from minicut_agent.gemini import (
     GeminiClient, _bounded_offset, _evenly_sample_times, _needs_deep_check
@@ -142,7 +144,13 @@ class ManualCommandTests(unittest.TestCase):
 class GeminiExactFrameAuthorityTests(unittest.TestCase):
     def test_exact_frame_result_is_one_of_master_pts_and_has_zero_local_delta(self):
         client = GeminiClient("dummy-key", "dummy-model")
-        frames = [10_000 + (i * 40) for i in range(80)]
+        frames = [
+            {
+                "time_ms": 10_000 + (i * 40),
+                "exact_time": f"{250 + i}/25",
+            }
+            for i in range(80)
+        ]
 
         with patch.object(
             client,
@@ -162,14 +170,52 @@ class GeminiExactFrameAuthorityTests(unittest.TestCase):
                 Path("movie.mp4"),
                 target_ms=10_000,
                 boundary_hint_ms=11_500,
-                frame_times=frames,
+                frame_points=frames,
                 subtitles=None,
             )
 
-        self.assertIn(result["selected_time_ms"], frames)
+        self.assertIn(
+            result["selected_time_ms"],
+            [item["time_ms"] for item in frames],
+        )
+        self.assertIn(
+            result["selected_time_exact"],
+            [item["exact_time"] for item in frames],
+        )
         self.assertEqual(result["frame_delta_ms"], 0)
         self.assertEqual(result["frame_authority"], "gemini")
         self.assertEqual(result["frame_selection"], "gemini-exact-master-pts")
+
+    def test_probe_frame_points_preserves_rational_pts(self):
+        payload = {
+            "streams": [{"time_base": "1/24000"}],
+            "format": {"start_time": "0.000000"},
+            "frames": [
+                {
+                    "best_effort_timestamp": 1001,
+                    "best_effort_timestamp_time": "0.041708",
+                }
+            ],
+        }
+        fake = type("Result", (), {
+            "returncode": 0,
+            "stdout": __import__("json").dumps(payload),
+            "stderr": "",
+        })()
+        with patch(
+            "minicut_agent.frame_resolver.run_text",
+            return_value=fake,
+        ):
+            points = probe_frame_points(
+                Path("movie.mp4"),
+                "ffprobe",
+                0,
+                100,
+            )
+
+        self.assertEqual(len(points), 1)
+        self.assertEqual(points[0]["time_ms"], 42)
+        self.assertEqual(points[0]["exact_time"], "1001/24000")
 
     def test_even_sampling_keeps_real_values_only(self):
         frames = [1_000 + i * 41 for i in range(100)]
