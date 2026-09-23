@@ -270,7 +270,7 @@ class FilmCutWorker(QThread):
     failed = Signal(str)
     cancelled = Signal()
 
-    CACHE_VERSION = 11
+    CACHE_VERSION = 12
 
     def __init__(
         self,
@@ -348,15 +348,25 @@ class FilmCutWorker(QThread):
             )
             if not valid:
                 return {}
-            return {
-                int(x["target_ms"]): x
-                for x in data.get("results", [])
-                if (
-                    "target_ms" in x
-                    and int(x.get("selected_time_ms") or 0) > 0
-                    and bool(str(x.get("selected_time_exact") or "").strip())
-                )
+            restored: dict[int, dict] = {}
+            cacheable_no_cut = {
+                "NO_CUT",
+                "NO_CUT_MAX_EXPAND",
+                "SKIPPED_AFTER_PREVIOUS_CUT",
             }
+            for item in data.get("results", []):
+                if not isinstance(item, dict) or "target_ms" not in item:
+                    continue
+                target = int(item["target_ms"])
+                selected = int(item.get("selected_time_ms") or 0)
+                decision = str(item.get("decision") or "").upper()
+                if selected > 0:
+                    if not str(item.get("selected_time_exact") or "").strip():
+                        continue
+                    restored[target] = item
+                elif decision in cacheable_no_cut:
+                    restored[target] = item
+            return restored
         except Exception:
             return {}
 
@@ -432,6 +442,7 @@ class FilmCutWorker(QThread):
                         "usage": client.usage.__dict__.copy(),
                     }
                     results.append(skipped)
+                    self._save_cache(results)
                     self.target_result.emit(skipped)
                     continue
 
