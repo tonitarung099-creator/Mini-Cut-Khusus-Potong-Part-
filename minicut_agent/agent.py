@@ -26,7 +26,7 @@ class ToolRegistry:
                 {"name": "pause", "args": {}, "description": "Jeda video."},
                 {"name": "set_playback_rate", "args": {"rate": "float 0.25-4.0"}, "description": "Atur kecepatan preview."},
                 {"name": "step_frame", "args": {"direction": "-1|1"}, "description": "Mundur/maju satu frame master."},
-                {"name": "add_cut", "args": {"time_ms": "int|string"}, "description": "Tambah batas part di timestamp arbitrer; chat exact-time memakai manual_frame_cut agar frame-accurate."},
+                {"name": "add_cut", "args": {"time_ms": "int|string"}, "description": "Tambah batas part tepat pada timestamp Gemini; nilai disimpan tanpa snap atau penyesuaian lokal."},
                 {"name": "remove_cut", "args": {"index": "int"}, "description": "Hapus cut berdasarkan index 0-based."},
                 {"name": "clear_cuts", "args": {}, "description": "Hapus semua cut."},
                 {"name": "divide_equal", "args": {"parts": "int"}, "description": "Bagi film menjadi N part sama panjang."},
