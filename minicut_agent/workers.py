@@ -270,7 +270,7 @@ class FilmCutWorker(QThread):
     failed = Signal(str)
     cancelled = Signal()
 
-    CACHE_VERSION = 10
+    CACHE_VERSION = 11
 
     def __init__(
         self,
@@ -351,7 +351,11 @@ class FilmCutWorker(QThread):
             return {
                 int(x["target_ms"]): x
                 for x in data.get("results", [])
-                if "target_ms" in x and int(x.get("selected_time_ms") or 0) > 0
+                if (
+                    "target_ms" in x
+                    and int(x.get("selected_time_ms") or 0) > 0
+                    and bool(str(x.get("selected_time_exact") or "").strip())
+                )
             }
         except Exception:
             return {}
