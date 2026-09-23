@@ -1267,7 +1267,14 @@ class MiniCutWindow(QMainWindow):
             for item in data.get("cuts", []):
                 req = int(item.get("requested_ms", item.get("actual_ms", 0)))
                 actual = int(item.get("actual_ms", req))
-                cuts.append(CutPoint(req, actual))
+                exact_time = item.get("exact_time")
+                cuts.append(CutPoint(
+                    req,
+                    actual,
+                    str(exact_time).strip()
+                    if exact_time not in (None, "")
+                    else None,
+                ))
             loaded_count = len(cuts)
             self.model.cuts = cuts
             self.model._normalize()
@@ -1467,7 +1474,7 @@ class MiniCutWindow(QMainWindow):
     def _snapshot(self) -> dict:
         return {
             "cuts": [
-                CutPoint(c.requested_ms, c.actual_ms)
+                CutPoint(c.requested_ms, c.actual_ms, c.exact_time)
                 for c in self.model.cuts
             ],
             "dirty": bool(self.model.dirty),
@@ -1476,7 +1483,7 @@ class MiniCutWindow(QMainWindow):
     def _restore_snapshot(self, snapshot: dict) -> None:
         cuts = snapshot.get("cuts") or []
         self.model.cuts = [
-            CutPoint(c.requested_ms, c.actual_ms)
+            CutPoint(c.requested_ms, c.actual_ms, c.exact_time)
             for c in cuts
         ]
         self.model._normalize()
@@ -2880,8 +2887,15 @@ class MiniCutWindow(QMainWindow):
         exact = []
         for result in self.film_cut_results:
             t = int(result.get("selected_time_ms") or 0)
+            exact_time = result.get("selected_time_exact")
             if 0 < t < self.model.duration_ms:
-                exact.append(CutPoint(t, t))
+                exact.append(CutPoint(
+                    t,
+                    t,
+                    str(exact_time).strip()
+                    if exact_time not in (None, "")
+                    else f"{t}/1000",
+                ))
         exact.sort(key=lambda x: x.actual_ms)
         if not exact:
             QMessageBox.warning(self, APP_TITLE, "Tidak ada titik potong valid untuk diterapkan.")
@@ -3005,7 +3019,11 @@ class MiniCutWindow(QMainWindow):
     def tool_add_cut(self, time_ms):
         self._require_tool_media_ready()
         ms = self.model.clamp(parse_time_ms(time_ms))
-        cut = self.model.add_frame_cut(ms, ms)
+        cut = self.model.add_frame_cut(
+            ms,
+            ms,
+            exact_time=f"{ms}/1000",
+        )
         smart_index = self.export_mode.findData("smartcut")
         if smart_index >= 0:
             self.export_mode.setCurrentIndex(smart_index)
@@ -3159,6 +3177,7 @@ class MiniCutWindow(QMainWindow):
             self.model.duration_ms,
             mode=mode,
             smartcut_exe=smartcut_exe,
+            exact_cuts=[c.exact_time for c in self.model.cuts],
         )
         self.export_worker.progress_changed.connect(self._export_progress)
         self.export_worker.log_line.connect(self._log)
