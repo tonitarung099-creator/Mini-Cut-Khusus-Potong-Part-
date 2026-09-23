@@ -53,50 +53,74 @@ def probe_frame_points(
     start_ms: int,
     end_ms: int,
 ) -> list[dict[str, Any]]:
-    """Return real master frames with both UI milliseconds and exact PTS time.
-
-    time_ms is only for display/timeline bookkeeping. exact_time is a
-    rational number relative to the media start (for example 1001/24000) and
-    is preserved all the way to SmartCut so rendering does not move Gemini's
-    chosen frame because of millisecond rounding.
-    """
+    """Return real master frames with UI milliseconds and exact relative PTS."""
     start_ms = max(0, int(start_ms))
     end_ms = max(start_ms + 1, int(end_ms))
-    cmd = [
+
+    # Read the source clock first. Some TS/MTS and remuxed files begin at a
+    # non-zero container timestamp while MiniCut's timeline still begins at 0.
+    clock_cmd = [
         ffprobe,
         "-v", "error",
         "-select_streams", "v:0",
-        "-read_intervals", f"{start_ms / 1000:.6f}%{end_ms / 1000:.6f}",
-        "-show_frames",
         "-show_streams",
         "-show_format",
-        "-show_entries",
-        (
-            "frame=best_effort_timestamp,best_effort_timestamp_time:"
-            "stream=time_base:format=start_time"
-        ),
+        "-show_entries", "stream=time_base:format=start_time",
         "-of", "json",
         str(source),
     ]
-    result = run_text(cmd)
-    if result.returncode != 0:
+    clock_result = run_text(clock_cmd)
+    if clock_result.returncode != 0:
         raise RuntimeError(
-            result.stderr.strip() or "Frame PTS exact tidak dapat dibaca."
+            clock_result.stderr.strip() or "Clock video tidak dapat dibaca."
         )
-
-    data = json.loads(result.stdout or "{}")
-    streams = data.get("streams") or []
+    clock_data = json.loads(clock_result.stdout or "{}")
+    streams = clock_data.get("streams") or []
     if not streams:
         raise RuntimeError("Time base video tidak tersedia.")
     try:
         time_base = Fraction(str(streams[0]["time_base"]))
     except Exception as exc:
         raise RuntimeError("Time base video tidak valid.") from exc
-
     try:
-        start_time = Fraction(str((data.get("format") or {}).get("start_time") or "0"))
+        start_time = Fraction(
+            str((clock_data.get("format") or {}).get("start_time") or "0")
+        )
     except Exception:
         start_time = Fraction(0)
+
+    absolute_start = start_time + Fraction(start_ms, 1000)
+    absolute_end = start_time + Fraction(end_ms, 1000)
+    with localcontext() as ctx:
+        ctx.prec = 30
+        abs_start_text = format(
+            Decimal(absolute_start.numerator)
+            / Decimal(absolute_start.denominator),
+            "f",
+        )
+        abs_end_text = format(
+            Decimal(absolute_end.numerator)
+            / Decimal(absolute_end.denominator),
+            "f",
+        )
+
+    frame_cmd = [
+        ffprobe,
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-read_intervals", f"{abs_start_text}%{abs_end_text}",
+        "-show_frames",
+        "-show_entries",
+        "frame=best_effort_timestamp,best_effort_timestamp_time",
+        "-of", "json",
+        str(source),
+    ]
+    frame_result = run_text(frame_cmd)
+    if frame_result.returncode != 0:
+        raise RuntimeError(
+            frame_result.stderr.strip() or "Frame PTS exact tidak dapat dibaca."
+        )
+    data = json.loads(frame_result.stdout or "{}")
 
     points: list[dict[str, Any]] = []
     seen_exact: set[str] = set()
@@ -121,8 +145,8 @@ def probe_frame_points(
 
         ms = int(round(float(relative) * 1000))
         if start_ms <= ms <= end_ms:
-            # Seek a tiny amount before the exact PTS for Gemini's JPEG preview.
-            # This avoids millisecond rounding skipping the selected frame.
+            # Seek one microsecond before this PTS for the JPEG shown to Gemini.
+            # The exact rational PTS itself is still preserved for SmartCut.
             seek_time = max(Fraction(0), relative - Fraction(1, 1_000_000))
             with localcontext() as ctx:
                 ctx.prec = 30
@@ -141,9 +165,7 @@ def probe_frame_points(
             })
             seen_exact.add(exact_time)
 
-    points.sort(
-        key=lambda item: Fraction(str(item["exact_time"]))
-    )
+    points.sort(key=lambda item: Fraction(str(item["exact_time"])))
     return points
 
 
