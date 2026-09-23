@@ -236,11 +236,17 @@ class MiniCutWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setObjectName("InspectorTabs")
         self.tabs.setMinimumWidth(410)
+
+        # Legacy local/OpenAI-compatible Agent UI is intentionally not exposed.
+        # All AI commands in MiniCut go through the Gemini Chat / Film Cut tabs.
+        # Keep these lightweight labels for internal state/bridge compatibility.
+        self.agent_state = QLabel()
+        self.bridge_label = QLabel("Bridge belum aktif")
+
         tab_specs = [
             (self._parts_tab(), "Timeline", "Timeline Part"),
-            (self._agent_tab(), "Agent", "AI Agent"),
             (self._film_cut_tab(), "Film Cut", "AI Film Cut otomatis"),
-            (self._gemini_chat_tab(), "Chat", "Gemini Chat / cut manual"),
+            (self._gemini_chat_tab(), "Chat", "Gemini Chat"),
             (self._gemini_keys_tab(), "API", "Gemini API Manager"),
             (self._log_tab(), "Log", "Log aplikasi"),
         ]
@@ -826,9 +832,9 @@ class MiniCutWindow(QMainWindow):
         layout.setSpacing(6)
 
         intro = QLabel(
-            "Gemini di tab ini adalah command agent MiniCut: ia memahami bahasa natural, reasoning "
-            "secara internal, lalu dapat memakai tool timeline/playback/proyek yang tersedia. "
-            "Cut waktu tertentu tetap dikunci ke PTS frame master nyata agar frame-accurate."
+            "Gemini di tab ini adalah satu-satunya AI command agent MiniCut: ia memahami bahasa "
+            "natural lalu memakai tool timeline/playback/proyek yang tersedia. Timestamp cut yang "
+            "dipilih Gemini diterapkan tanpa frame-lock atau snap lokal."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
