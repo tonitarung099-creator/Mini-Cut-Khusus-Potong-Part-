@@ -9,7 +9,7 @@ Aplikasi desktop Windows untuk membagi film/video menjadi beberapa part dengan b
 - **Contact sheet + SRT sinkron** — untuk window awal ±2 menit, MiniCut membuat contact sheet lokal sekitar 1 frame/2 detik dan mengirim SRT pada blok waktu yang sama agar Gemini memahami visual + isi percakapan bersama-sama.
 - **NO CUT / Expand** — bila visual dan dialog masih satu rangkaian, Gemini boleh memilih NO CUT. MiniCut lalu menambah pencarian sekitar +3 menit tanpa memaksa cut dan tanpa menggeser grid target berikutnya.
 - **Pemilihan frame final oleh Gemini** — setelah area boundary ditemukan, MiniCut membaca frame PTS nyata di sekitar boundary dan mengirim preview frame-frame itu ke Gemini dalam dua tahap (coarse lalu fine). MiniCut tidak memilih kandidat final secara lokal.
-- **SRT sebagai penjaga dialog** — membantu menghindari cut di tengah dialog/percakapan.
+- **SRT sebagai penjaga dialog** — membantu menghindari cut di tengah dialog/percakapan. Saat ekspor, SRT yang dipilih (atau `NamaVideo.srt` yang terdeteksi otomatis) ikut dipotong menjadi `NamaVideo_Part-01.srt`, `Part-02.srt`, dst.; timestamp tiap part di-reset mulai `00:00:00,000`, dan cue yang melewati boundary diklip ke kedua part tanpa mengubah teks.
 - **Gemini exact-frame authority** — pada AI Film Cut, MiniCut hanya membaca daftar PTS frame master di sekitar boundary dan menampilkannya ke Gemini. Gemini memilih frame final; PTS rasional asli disimpan sampai SmartCut sehingga tidak dibulatkan ke milidetik untuk render.
 - **SmartCut Frame Accurate** — default export; meminimalkan re-encode di sekitar titik potong.
 - **Portable FFmpeg + ffprobe** — build Windows membawa tool media sendiri; pengguna ZIP tidak perlu menginstal FFmpeg atau mengatur PATH.
@@ -55,7 +55,7 @@ Target 15 menit adalah patokan, bukan batas wajib. Perpindahan scene yang natura
 - `minicut_agent/gemini.py` — pemahaman scene + pemilihan frame master final oleh Gemini.
 - `minicut_agent/frame_resolver.py` — pembacaan PTS frame master dan utilitas kompatibilitas.
 - `minicut_agent/gemini_keys.py` — manager API key lokal.
-- `minicut_agent/subtitles.py` — SRT.
+- `minicut_agent/subtitles.py` — pembacaan SRT, sinkronisasi dialog, dan ekspor SRT per part.
 - `minicut_agent/workers.py` — background workers.
 - `mcp_server.py` — companion MCP.
 - `smartcut_runner.py` — companion SmartCut.
