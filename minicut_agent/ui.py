@@ -936,8 +936,11 @@ class MiniCutWindow(QMainWindow):
         self.srt_edit.setReadOnly(True)
         self.srt_edit.setPlaceholderText("Belum ada SRT")
         self.srt_btn = QPushButton("Pilih SRT")
+        self.srt_clear_btn = QPushButton("Lepas")
+        self.srt_clear_btn.setToolTip("Lepas SRT dan ekspor video tanpa subtitle.")
         srt_layout.addWidget(self.srt_edit, 1)
         srt_layout.addWidget(self.srt_btn)
+        srt_layout.addWidget(self.srt_clear_btn)
         form.addRow("Subtitle", srt_row)
 
         self.film_interval = QSpinBox()
@@ -1040,6 +1043,7 @@ class MiniCutWindow(QMainWindow):
         layout.addLayout(review_actions)
 
         self.srt_btn.clicked.connect(self._choose_srt)
+        self.srt_clear_btn.clicked.connect(self._clear_srt)
         self.gemini_manage_btn.clicked.connect(self._open_gemini_manager)
         self.gemini_key_combo.currentIndexChanged.connect(self._film_key_changed)
         self.gemini_model_combo.currentIndexChanged.connect(self._refresh_gemini_key_views)
@@ -1302,7 +1306,16 @@ class MiniCutWindow(QMainWindow):
         # Jika ada NamaVideo.srt di folder yang sama, pakai otomatis agar ekspor
         # MP4 + SRT per part tidak membutuhkan pemilihan ulang.
         auto_srt = source.with_suffix(".srt")
-        self.srt_path = auto_srt.resolve() if auto_srt.is_file() else None
+        auto_srt_error = ""
+        self.srt_path = None
+        if auto_srt.is_file():
+            try:
+                SubtitleTrack.load(auto_srt)
+            except Exception as exc:
+                auto_srt_error = str(exc)
+            else:
+                self.srt_path = auto_srt.resolve()
+
         if hasattr(self, "srt_edit"):
             if self.srt_path:
                 self.srt_edit.setText(str(self.srt_path))
@@ -1310,11 +1323,19 @@ class MiniCutWindow(QMainWindow):
                 self.srt_edit.clear()
                 self.srt_edit.setPlaceholderText("Belum ada SRT")
         if hasattr(self, "film_status_label"):
-            self.film_status_label.setText(
-                "SRT otomatis ditemukan dan siap untuk Analisis Film + ekspor part."
-                if self.srt_path
-                else "Video baru dibuka. Pilih SRT yang sesuai sebelum Analisis Film."
-            )
+            if self.srt_path:
+                self.film_status_label.setText(
+                    "SRT otomatis ditemukan dan siap untuk Analisis Film + ekspor part."
+                )
+            elif auto_srt_error:
+                self.film_status_label.setText(
+                    "SRT dengan nama yang sama ditemukan tetapi tidak valid. "
+                    "Pilih SRT lain atau ekspor video tanpa subtitle."
+                )
+            else:
+                self.film_status_label.setText(
+                    "Video baru dibuka. Pilih SRT yang sesuai sebelum Analisis Film."
+                )
 
         self.film_cut_results = []
         if hasattr(self, 'film_table'):
@@ -1328,6 +1349,13 @@ class MiniCutWindow(QMainWindow):
         self.progress.setValue(0)
         self.status.setText(f"Siap · {source.name} · {len(keyframes)} keyframe")
         self._log(f"Video dibuka: {source}")
+        if auto_srt_error:
+            self._log(
+                "SRT otomatis diabaikan karena tidak valid: "
+                + str(auto_srt)
+                + " · "
+                + auto_srt_error
+            )
         if project_cut_warning:
             self._log("Peringatan proyek: " + project_cut_warning)
             QMessageBox.warning(self, APP_TITLE, project_cut_warning)
@@ -2404,6 +2432,27 @@ class MiniCutWindow(QMainWindow):
             + (" Hasil AI lama dibersihkan." if changed else "")
         )
         return True
+
+    def _clear_srt(self):
+        changed = self.srt_path is not None
+        self.srt_path = None
+        if hasattr(self, "srt_edit"):
+            self.srt_edit.clear()
+            self.srt_edit.setPlaceholderText("Belum ada SRT")
+        if changed:
+            self.film_cut_results = []
+            if hasattr(self, "film_table"):
+                self.film_table.setRowCount(0)
+            if hasattr(self, "film_apply_btn"):
+                self.film_apply_btn.setEnabled(False)
+            if hasattr(self, "film_preview_btn"):
+                self.film_preview_btn.setEnabled(False)
+        if hasattr(self, "film_status_label"):
+            self.film_status_label.setText(
+                "SRT dilepas. Ekspor berikutnya video-only; "
+                "pilih SRT lagi sebelum Analisis Film."
+            )
+        self._log("Subtitle dilepas dari proyek aktif.")
 
     def _test_gemini(self):
         key_id = self.gemini_keys.active_id()
