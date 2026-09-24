@@ -460,6 +460,39 @@ class ExportStagingSafetyTests(unittest.TestCase):
             self.assertFalse(stale.exists())
 
 
+    def test_reexport_removes_uppercase_extension_parts(self):
+        class SuccessProc:
+            def __init__(self, cmd):
+                self.stdout = io.StringIO("out_time_ms=2000000\n")
+                Path(cmd[-1]).write_bytes(b"new-video")
+
+            def wait(self, timeout=None):
+                return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            out = root / "movie_Parts"
+            out.mkdir()
+            stale_upper = out / "movie_Part-01.MP4"
+            stale_upper.write_bytes(b"old-uppercase")
+
+            with patch(
+                "minicut_agent.core.subprocess.Popen",
+                side_effect=lambda cmd, **kwargs: SuccessProc(cmd),
+            ):
+                count, _size = export_segments(
+                    "ffmpeg",
+                    root / "movie.mp4",
+                    out,
+                    "movie",
+                    [],
+                    2_000,
+                )
+
+            self.assertEqual(count, 1)
+            self.assertFalse(stale_upper.exists())
+            self.assertTrue((out / "movie_Part-01.mp4").is_file())
+
     def test_reexport_removes_stale_parts_from_previous_video_extension(self):
         class SuccessProc:
             def __init__(self, cmd):
