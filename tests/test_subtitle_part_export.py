@@ -185,6 +185,29 @@ class SubtitlePartExportTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Durasi cue SRT tidak valid"):
                 SubtitleTrack.load(zero_path)
 
+    def test_parser_rejects_negative_or_prefixed_timestamp(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            negative = root / "negative.srt"
+            negative.write_text(
+                "1\n"
+                "-00:00:01,000 --> 00:00:02,000\n"
+                "Negatif\n",
+                encoding="utf-8",
+            )
+            prefixed = root / "prefixed.srt"
+            prefixed.write_text(
+                "1\n"
+                "abc00:00:01,000 --> 00:00:02,000\n"
+                "Prefix\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "tidak berisi cue|Timestamp"):
+                SubtitleTrack.load(negative)
+            with self.assertRaisesRegex(ValueError, "tidak berisi cue|Timestamp"):
+                SubtitleTrack.load(prefixed)
+
     def test_write_srt_parts_creates_matching_part_names(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
