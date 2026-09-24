@@ -324,7 +324,12 @@ class ProjectModel:
             "dirty": self.dirty,
         }
 
-    def to_project_dict(self, project_path: Path | None = None) -> dict[str, Any]:
+    def to_project_dict(
+        self,
+        project_path: Path | None = None,
+        subtitle_path: Path | None = None,
+        subtitle_auto_disabled: bool = False,
+    ) -> dict[str, Any]:
         source_abs = str(self.source) if self.source else ""
         source_rel = ""
         if self.source and project_path:
@@ -332,11 +337,29 @@ class ProjectModel:
                 source_rel = os.path.relpath(self.source, project_path.parent)
             except ValueError:
                 source_rel = ""
+
+        subtitle_abs = ""
+        subtitle_rel = ""
+        if subtitle_path is not None:
+            resolved_subtitle = Path(subtitle_path).resolve()
+            subtitle_abs = str(resolved_subtitle)
+            if project_path:
+                try:
+                    subtitle_rel = os.path.relpath(
+                        resolved_subtitle,
+                        project_path.parent,
+                    )
+                except ValueError:
+                    subtitle_rel = ""
+
         return {
             "app": "MiniCut Studio",
             "version": 2,
             "source_absolute": source_abs,
             "source_relative": source_rel,
+            "subtitle_absolute": subtitle_abs,
+            "subtitle_relative": subtitle_rel,
+            "subtitle_auto_disabled": bool(subtitle_auto_disabled),
             "metadata": {
                 "duration_ms": self.duration_ms,
                 "fps": self.fps,
@@ -348,12 +371,21 @@ class ProjectModel:
             "parts": len(self.cuts) + 1,
         }
 
-    def save(self, path: Path) -> None:
+    def save(
+        self,
+        path: Path,
+        subtitle_path: Path | None = None,
+        subtitle_auto_disabled: bool = False,
+    ) -> None:
         path = path.resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.name + ".tmp")
         payload = json.dumps(
-            self.to_project_dict(path),
+            self.to_project_dict(
+                path,
+                subtitle_path=subtitle_path,
+                subtitle_auto_disabled=subtitle_auto_disabled,
+            ),
             ensure_ascii=False,
             indent=2,
         )
@@ -365,6 +397,39 @@ class ProjectModel:
             raise
         self.project_path = path
         self.dirty = False
+
+def resolve_project_subtitle(
+    data: dict[str, Any],
+    project_path: Path,
+) -> tuple[Path | None, bool, bool]:
+    """Resolve subtitle stored in a project.
+
+    Returns (subtitle_path, auto_disabled, setting_present). Relative path wins
+    so project folders stay portable after being moved.
+    """
+    setting_present = any(
+        key in data
+        for key in (
+            "subtitle_absolute",
+            "subtitle_relative",
+            "subtitle_auto_disabled",
+        )
+    )
+    auto_disabled = bool(data.get("subtitle_auto_disabled", False))
+    if auto_disabled:
+        return None, True, setting_present
+
+    candidates: list[Path] = []
+    if data.get("subtitle_relative"):
+        candidates.append(
+            (project_path.parent / str(data["subtitle_relative"])).resolve()
+        )
+    if data.get("subtitle_absolute"):
+        candidates.append(Path(str(data["subtitle_absolute"])))
+
+    subtitle = next((path for path in candidates if path.is_file()), None)
+    return subtitle, False, setting_present
+
 
 def load_project_file(path: Path) -> tuple[dict[str, Any], Path | None]:
     try:
