@@ -120,6 +120,48 @@ class SubtitlePartExportTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "di luar rentang"):
                 SubtitleTrack.load(bad_second)
 
+    def test_parser_rejects_four_digit_millisecond_field(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "bad-fraction.srt"
+            path.write_text(
+                "1\n"
+                "00:00:01,1234 --> 00:00:02,000\n"
+                "Ambigu\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "tidak berisi cue|Timestamp"):
+                SubtitleTrack.load(path)
+
+    def test_parser_preserves_windows_1252_text_without_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "cp1252.srt"
+            payload = (
+                "1\n"
+                "00:00:00,000 --> 00:00:01,000\n"
+                "café – bagus\n"
+            )
+            path.write_bytes(payload.encode("cp1252"))
+
+            track = SubtitleTrack.load(path)
+
+            self.assertEqual(track.cues[0].text, "café – bagus")
+            self.assertNotIn("�", track.cues[0].text)
+
+    def test_parser_reads_utf16_bom(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "utf16.srt"
+            payload = (
+                "1\n"
+                "00:00:00,000 --> 00:00:01,000\n"
+                "Halo dunia\n"
+            )
+            path.write_bytes(payload.encode("utf-16"))
+
+            track = SubtitleTrack.load(path)
+
+            self.assertEqual(track.cues[0].text, "Halo dunia")
+
     def test_write_srt_parts_creates_matching_part_names(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
