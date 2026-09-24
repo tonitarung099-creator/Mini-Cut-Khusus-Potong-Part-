@@ -679,7 +679,7 @@ class ExportStagingSafetyTests(unittest.TestCase):
             out.mkdir()
             (out / "movie_Part-01.mp4").write_bytes(b"old-video")
             stale_srt_1 = out / "movie_Part-01.srt"
-            stale_srt_2 = out / "movie_Part-02.srt"
+            stale_srt_2 = out / "movie_Part-02.SRT"
             stale_srt_1.write_text("old subtitle 1", encoding="utf-8")
             stale_srt_2.write_text("old subtitle 2", encoding="utf-8")
 
