@@ -1600,6 +1600,22 @@ class MiniCutWindow(QMainWindow):
                 for c in self.model.cuts
             ],
             "dirty": bool(self.model.dirty),
+            "srt_path": getattr(self, "srt_path", None),
+            "srt_project_reference": getattr(
+                self,
+                "_srt_project_reference",
+                None,
+            ),
+            "srt_auto_disabled": bool(
+                getattr(self, "_srt_auto_disabled", False)
+            ),
+            "srt_user_disabled": bool(
+                getattr(self, "_srt_user_disabled", False)
+            ),
+            "film_cut_results": [
+                dict(item)
+                for item in getattr(self, "film_cut_results", [])
+            ],
         }
 
     def _restore_snapshot(self, snapshot: dict) -> None:
@@ -1609,8 +1625,69 @@ class MiniCutWindow(QMainWindow):
             for c in cuts
         ]
         self.model._normalize()
+
+        self.srt_path = snapshot.get("srt_path")
+        self._srt_project_reference = snapshot.get(
+            "srt_project_reference"
+        )
+        self._srt_auto_disabled = bool(
+            snapshot.get("srt_auto_disabled", False)
+        )
+        self._srt_user_disabled = bool(
+            snapshot.get("srt_user_disabled", False)
+        )
+        restored_film_results = [
+            dict(item)
+            for item in (snapshot.get("film_cut_results") or [])
+        ]
+        self.film_cut_results = list(restored_film_results)
+
         self.model.dirty = bool(snapshot.get("dirty", False))
         self._refresh()
+
+        if hasattr(self, "srt_edit"):
+            if self.srt_path is not None:
+                self.srt_edit.setText(str(self.srt_path))
+            elif self._srt_project_reference is not None:
+                self.srt_edit.setText(
+                    str(self._srt_project_reference)
+                    + "  [tidak ditemukan]"
+                )
+            else:
+                self.srt_edit.clear()
+                self.srt_edit.setPlaceholderText("Belum ada SRT")
+
+        if hasattr(self, "film_table"):
+            self.film_table.setRowCount(0)
+            if restored_film_results:
+                self.film_cut_results = []
+                for result in restored_film_results:
+                    self._film_cut_target_result(result)
+                valid_cut_count = sum(
+                    1
+                    for item in self.film_cut_results
+                    if int(item.get("selected_time_ms") or 0) > 0
+                )
+                if hasattr(self, "film_apply_btn"):
+                    self.film_apply_btn.setEnabled(valid_cut_count > 0)
+                if hasattr(self, "film_status_label"):
+                    self.film_status_label.setText(
+                        "Undo memulihkan SRT dan hasil AI Film Cut sebelumnya."
+                    )
+            else:
+                if hasattr(self, "film_apply_btn"):
+                    self.film_apply_btn.setEnabled(False)
+                if hasattr(self, "film_preview_btn"):
+                    self.film_preview_btn.setEnabled(False)
+                if hasattr(self, "film_status_label"):
+                    if self.srt_path is not None:
+                        self.film_status_label.setText(
+                            "Undo memulihkan SRT sebelumnya."
+                        )
+                    elif self._srt_user_disabled:
+                        self.film_status_label.setText(
+                            "Undo memulihkan mode video-only."
+                        )
 
     def tool_transaction_snapshot(self) -> dict:
         return self._snapshot()
