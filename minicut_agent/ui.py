@@ -82,6 +82,7 @@ class MiniCutWindow(QMainWindow):
         self._scrub_resume_after = False
         self.film_cut_results: list[dict] = []
         self.srt_path: Path | None = None
+        self._srt_project_reference: Path | None = None
         self._srt_auto_disabled = False
         self._srt_user_disabled = False
         self.gemini_keys = GeminiKeyStore()
@@ -1309,12 +1310,14 @@ class MiniCutWindow(QMainWindow):
         # Proyek baru menyimpan pilihan SRT manual + status video-only. Proyek
         # lama tetap memakai auto-detect NamaVideo.srt agar kompatibel.
         self.srt_path = None
+        self._srt_project_reference = None
         self._srt_auto_disabled = False
         self._srt_user_disabled = False
         subtitle_status = ""
         subtitle_log_warning = ""
 
         project_subtitle = None
+        project_subtitle_reference = None
         project_setting_present = False
         project_auto_disabled = False
         if data and project_path:
@@ -1323,11 +1326,20 @@ class MiniCutWindow(QMainWindow):
                 project_auto_disabled,
                 project_setting_present,
             ) = resolve_project_subtitle(data, project_path)
+            if data.get("subtitle_relative"):
+                project_subtitle_reference = (
+                    project_path.parent / str(data["subtitle_relative"])
+                ).resolve()
+            elif data.get("subtitle_absolute"):
+                project_subtitle_reference = Path(
+                    str(data["subtitle_absolute"])
+                )
 
         if project_setting_present:
             self._srt_auto_disabled = bool(project_auto_disabled)
             self._srt_user_disabled = bool(project_auto_disabled)
             if project_auto_disabled:
+                self._srt_project_reference = None
                 subtitle_status = (
                     "Proyek memulihkan mode video-only. Pilih SRT bila ingin "
                     "subtitle ikut dianalisis/diekspor."
@@ -1349,18 +1361,25 @@ class MiniCutWindow(QMainWindow):
                     )
                 else:
                     self.srt_path = project_subtitle.resolve()
+                    self._srt_project_reference = self.srt_path
                     subtitle_status = (
                         "SRT dari proyek dipulihkan dan siap untuk "
                         "Analisis Film + ekspor part."
                     )
             else:
                 self._srt_auto_disabled = True
+                self._srt_project_reference = project_subtitle_reference
                 subtitle_log_warning = (
-                    "SRT yang tersimpan di proyek sudah tidak ditemukan."
+                    "SRT yang tersimpan di proyek sudah tidak ditemukan"
+                    + (
+                        ": " + str(project_subtitle_reference)
+                        if project_subtitle_reference is not None
+                        else "."
+                    )
                 )
                 subtitle_status = (
                     "SRT yang tersimpan di proyek tidak ditemukan. "
-                    "Pilih ulang SRT sebelum Analisis Film."
+                    "Referensinya tetap disimpan; pilih ulang SRT sebelum Analisis Film."
                 )
         else:
             auto_srt = source.with_suffix(".srt")
@@ -1381,6 +1400,7 @@ class MiniCutWindow(QMainWindow):
                     )
                 else:
                     self.srt_path = auto_srt.resolve()
+                    self._srt_project_reference = self.srt_path
                     subtitle_status = (
                         "SRT otomatis ditemukan dan siap untuk "
                         "Analisis Film + ekspor part."
@@ -1393,6 +1413,10 @@ class MiniCutWindow(QMainWindow):
         if hasattr(self, "srt_edit"):
             if self.srt_path:
                 self.srt_edit.setText(str(self.srt_path))
+            elif self._srt_project_reference is not None:
+                self.srt_edit.setText(
+                    str(self._srt_project_reference) + "  [tidak ditemukan]"
+                )
             else:
                 self.srt_edit.clear()
                 self.srt_edit.setPlaceholderText("Belum ada SRT")
@@ -2475,6 +2499,7 @@ class MiniCutWindow(QMainWindow):
 
         changed = self.srt_path != new_path
         self.srt_path = new_path
+        self._srt_project_reference = new_path
         self._srt_auto_disabled = False
         self._srt_user_disabled = False
         self.srt_edit.setText(str(self.srt_path))
@@ -2497,6 +2522,7 @@ class MiniCutWindow(QMainWindow):
     def _clear_srt(self):
         changed = self.srt_path is not None or not self._srt_user_disabled
         self.srt_path = None
+        self._srt_project_reference = None
         self._srt_auto_disabled = True
         self._srt_user_disabled = True
         if changed and self.model.source:
@@ -3265,7 +3291,11 @@ class MiniCutWindow(QMainWindow):
             path = Path(selected)
         self.model.save(
             path,
-            subtitle_path=self.srt_path,
+            subtitle_path=(
+                self.srt_path
+                if self.srt_path is not None
+                else self._srt_project_reference
+            ),
             subtitle_auto_disabled=self._srt_user_disabled,
         )
         self.status.setText("Proyek tersimpan · " + str(path))
@@ -3313,6 +3343,30 @@ class MiniCutWindow(QMainWindow):
         out_dir = Path(parent) / (self.model.source.stem + "_Parts")
 
         export_srt = None
+        if (
+            self.srt_path is None
+            and self._srt_project_reference is not None
+            and not self._srt_user_disabled
+        ):
+            if self._srt_project_reference.is_file():
+                try:
+                    SubtitleTrack.load(self._srt_project_reference)
+                except Exception as exc:
+                    raise RuntimeError(
+                        "SRT proyek ditemukan kembali tetapi tidak valid: "
+                        + str(exc)
+                    ) from exc
+                self.srt_path = self._srt_project_reference.resolve()
+                self._srt_auto_disabled = False
+                if hasattr(self, "srt_edit"):
+                    self.srt_edit.setText(str(self.srt_path))
+            else:
+                raise RuntimeError(
+                    "SRT yang tersimpan di proyek belum ditemukan: "
+                    + str(self._srt_project_reference)
+                    + ". Pilih ulang SRT atau tekan Lepas untuk ekspor video-only."
+                )
+
         if self.srt_path is not None:
             if not self.srt_path.is_file():
                 raise RuntimeError(
