@@ -627,6 +627,11 @@ def export_segments(
 ) -> tuple[int, int]:
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     ext = source.suffix or ".mp4"
+    valid_cuts = sorted({
+        int(value)
+        for value in cut_times_ms
+        if 0 < int(value) < int(duration_ms)
+    })
     stage_ctx = tempfile.TemporaryDirectory(
         prefix=f".{output_dir.name}.stage-",
         dir=str(output_dir.parent),
@@ -638,10 +643,10 @@ def export_segments(
             ffmpeg, "-y", "-hide_banner", "-nostats", "-progress", "pipe:1",
             "-i", str(source), "-map", "0", "-c", "copy", "-map_metadata", "0",
         ]
-        if cut_times_ms:
+        if valid_cuts:
             cmd += [
                 "-segment_times", ",".join(
-                    f"{v / 1000:.3f}" for v in cut_times_ms
+                    f"{v / 1000:.3f}" for v in valid_cuts
                 ),
                 "-reset_timestamps", "1",
                 "-segment_start_number", "1",
@@ -699,7 +704,7 @@ def export_segments(
             p for p in _export_part_files(staging_dir, base_name, ext)
             if p.stat().st_size > 0
         ]
-        expected = len(cut_times_ms) + 1
+        expected = len(valid_cuts) + 1
         if len(files) != expected:
             raise RuntimeError(
                 f"FFmpeg selesai tetapi hasil part tidak lengkap "
@@ -707,7 +712,7 @@ def export_segments(
             )
 
         if srt_path is not None:
-            ranges = _part_ranges_from_cuts(cut_times_ms, duration_ms)
+            ranges = _part_ranges_from_cuts(valid_cuts, duration_ms)
             subtitle_files = write_srt_parts(
                 srt_path,
                 staging_dir,
