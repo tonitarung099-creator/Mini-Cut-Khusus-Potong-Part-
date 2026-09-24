@@ -26,6 +26,7 @@ from .gemini import DEFAULT_MODEL
 from .frame_resolver import probe_frame_timestamps
 from .gemini_keys import GeminiKeyStore, MAX_GEMINI_KEYS
 from .preview_player import PreviewPlayer
+from .subtitles import SubtitleTrack
 from .workers import (
     AgentWorker, AnalyzeWorker, ExportWorker, FilmCutWorker,
     GeminiBatchTestWorker, GeminiChatWorker, GeminiTestWorker
@@ -3183,18 +3184,29 @@ class MiniCutWindow(QMainWindow):
             return {"ok": False, "cancelled": True}
         out_dir = Path(parent) / (self.model.source.stem + "_Parts")
 
-        export_srt = (
-            self.srt_path.resolve()
-            if self.srt_path and self.srt_path.is_file()
-            else None
-        )
-        if export_srt is None:
+        export_srt = None
+        if self.srt_path is not None:
+            if not self.srt_path.is_file():
+                raise RuntimeError(
+                    "SRT yang dipilih sudah tidak ditemukan. "
+                    "Pilih ulang SRT atau hapus pilihan subtitle sebelum ekspor."
+                )
+            export_srt = self.srt_path.resolve()
+        else:
             auto_srt = self.model.source.with_suffix(".srt")
             if auto_srt.is_file():
                 export_srt = auto_srt.resolve()
                 self.srt_path = export_srt
                 if hasattr(self, "srt_edit"):
                     self.srt_edit.setText(str(export_srt))
+
+        if export_srt is not None:
+            try:
+                SubtitleTrack.load(export_srt)
+            except Exception as exc:
+                raise RuntimeError(
+                    "SRT tidak valid dan ekspor belum dimulai: " + str(exc)
+                ) from exc
 
         self.export_worker = ExportWorker(
             ffmpeg,
