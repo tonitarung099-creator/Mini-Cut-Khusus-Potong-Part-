@@ -3818,7 +3818,10 @@ class MiniCutWindow(QMainWindow):
 
         if self.model.dirty:
             answer = QMessageBox.question(
-                self, APP_TITLE, "Perubahan cut belum disimpan. Tetap keluar?"
+                self,
+                APP_TITLE,
+                "Perubahan proyek (cut/subtitle) belum disimpan. Tetap keluar?",
+
             )
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
