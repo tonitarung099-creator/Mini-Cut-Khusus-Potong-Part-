@@ -40,13 +40,32 @@ class SubtitleCue:
     end_ms: int
     text: str
 
+def _read_srt_text(path: str | Path) -> str:
+    """Decode common SRT encodings without silently changing characters."""
+    data = Path(path).read_bytes()
+    if data.startswith(b"\xef\xbb\xbf"):
+        return data.decode("utf-8-sig")
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16")
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            return data.decode("cp1252")
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                "Encoding SRT tidak didukung. Simpan sebagai UTF-8, UTF-16, "
+                "atau Windows-1252 tanpa mengubah isi subtitle."
+            ) from exc
+
+
 class SubtitleTrack:
     def __init__(self, cues: list[SubtitleCue] | None = None):
         self.cues = sorted(cues or [], key=lambda c: c.start_ms)
 
     @classmethod
     def load(cls, path: str | Path) -> "SubtitleTrack":
-        raw = Path(path).read_text(encoding="utf-8-sig", errors="replace")
+        raw = _read_srt_text(path)
         lines = raw.splitlines()
         cues: list[SubtitleCue] = []
         fallback_index = 1
