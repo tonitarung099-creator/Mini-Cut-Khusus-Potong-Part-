@@ -485,7 +485,8 @@ def _export_part_files(output_dir: Path, base_name: str, ext: str) -> list[Path]
     if not output_dir.is_dir():
         return []
     pattern = re.compile(
-        rf"^{re.escape(base_name)}_Part-(?P<number>\d+){re.escape(ext)}$"
+        rf"^{re.escape(base_name)}_Part-(?P<number>\d+){re.escape(ext)}$",
+        flags=re.IGNORECASE,
     )
     matched: list[tuple[int, Path]] = []
     for path in output_dir.iterdir():
