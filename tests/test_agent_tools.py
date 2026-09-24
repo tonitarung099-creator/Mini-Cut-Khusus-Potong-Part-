@@ -124,6 +124,28 @@ class AgentTransactionTests(unittest.TestCase):
         self.assertFalse(host.dirty)
 
 
+    def test_save_project_terminal_step_stops_following_tools(self):
+        class Host(_TransactionalHost):
+            def tool_save_project(self):
+                self.calls.append("save_project")
+                return {"ok": True, "path": "movie.minicut.json", "stop_plan": True}
+
+        host = Host()
+        planner = AgentPlanner(ToolRegistry(host))
+        results = planner.apply({
+            "steps": [
+                {"tool": "clear_cuts", "args": {}},
+                {"tool": "save_project", "args": {}},
+                {"tool": "remove_cut", "args": {"index": 0}},
+            ]
+        })
+
+        self.assertEqual(host.calls, ["clear_cuts", "save_project"])
+        self.assertEqual(len(results), 2)
+        self.assertEqual(host.cuts, [])
+        self.assertTrue(host.dirty)
+
+
 class _UndoHost:
     _snapshot = MiniCutWindow._snapshot
     _restore_snapshot = MiniCutWindow._restore_snapshot
