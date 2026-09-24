@@ -314,5 +314,83 @@ class ExportStagingSafetyTests(unittest.TestCase):
             self.assertFalse(stale.exists())
 
 
+    def test_reexport_without_srt_removes_old_generated_srt(self):
+        class SuccessProc:
+            def __init__(self, cmd):
+                self.stdout = io.StringIO("out_time_ms=2000000\n")
+                Path(cmd[-1]).write_bytes(b"new-export")
+
+            def wait(self, timeout=None):
+                return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            out = root / "movie_Parts"
+            out.mkdir()
+            (out / "movie_Part-01.mp4").write_bytes(b"old-video")
+            stale_srt_1 = out / "movie_Part-01.srt"
+            stale_srt_2 = out / "movie_Part-02.srt"
+            stale_srt_1.write_text("old subtitle 1", encoding="utf-8")
+            stale_srt_2.write_text("old subtitle 2", encoding="utf-8")
+
+            with patch(
+                "minicut_agent.core.subprocess.Popen",
+                side_effect=lambda cmd, **kwargs: SuccessProc(cmd),
+            ):
+                count, _size = export_segments(
+                    "ffmpeg",
+                    root / "movie.mp4",
+                    out,
+                    "movie",
+                    [],
+                    2_000,
+                )
+
+            self.assertEqual(count, 1)
+            self.assertFalse(stale_srt_1.exists())
+            self.assertFalse(stale_srt_2.exists())
+
+    def test_invalid_srt_preserves_previous_video_and_subtitle(self):
+        class SuccessProc:
+            def __init__(self, cmd):
+                self.stdout = io.StringIO("out_time_ms=2000000\n")
+                Path(cmd[-1]).write_bytes(b"new-video")
+
+            def wait(self, timeout=None):
+                return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            out = root / "movie_Parts"
+            out.mkdir()
+            previous_video = out / "movie_Part-01.mp4"
+            previous_srt = out / "movie_Part-01.srt"
+            previous_video.write_bytes(b"previous-video")
+            previous_srt.write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\nold\n",
+                encoding="utf-8",
+            )
+            broken_srt = root / "broken.srt"
+            broken_srt.write_text("not a valid subtitle", encoding="utf-8")
+
+            with patch(
+                "minicut_agent.core.subprocess.Popen",
+                side_effect=lambda cmd, **kwargs: SuccessProc(cmd),
+            ):
+                with self.assertRaisesRegex(ValueError, "SRT tidak berisi"):
+                    export_segments(
+                        "ffmpeg",
+                        root / "movie.mp4",
+                        out,
+                        "movie",
+                        [],
+                        2_000,
+                        srt_path=broken_srt,
+                    )
+
+            self.assertEqual(previous_video.read_bytes(), b"previous-video")
+            self.assertIn("old", previous_srt.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()
