@@ -14,6 +14,8 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Callable
 
+from .subtitles import write_srt_parts
+
 SUPPORTED_VIDEO = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v", ".ts", ".mts"}
 
 def bundle_dir() -> Path:
@@ -428,20 +430,52 @@ def _clear_export_parts(output_dir: Path, base_name: str, ext: str) -> None:
         path.unlink(missing_ok=True)
 
 
+def _part_ranges_from_cuts(
+    cut_times_ms: list[int],
+    duration_ms: int,
+) -> list[tuple[int, int]]:
+    duration_ms = max(0, int(duration_ms))
+    marks = [0]
+    marks.extend(
+        sorted({
+            int(value)
+            for value in cut_times_ms
+            if 0 < int(value) < duration_ms
+        })
+    )
+    marks.append(duration_ms)
+    return [(marks[i], marks[i + 1]) for i in range(len(marks) - 1)]
+
+
 def _commit_staged_export_parts(
     staging_dir: Path,
     output_dir: Path,
     base_name: str,
     ext: str,
+    include_subtitles: bool = False,
 ) -> list[Path]:
-    """Replace previous generated parts only after the new export is complete."""
-    staged = _export_part_files(staging_dir, base_name, ext)
-    if not staged:
+    """Replace video + optional SRT companions as one transaction."""
+    staged_video = _export_part_files(staging_dir, base_name, ext)
+    if not staged_video:
         raise RuntimeError("Tidak ada hasil ekspor baru untuk dipindahkan.")
+
+    staged_srt = (
+        _export_part_files(staging_dir, base_name, ".srt")
+        if include_subtitles
+        else []
+    )
+    if include_subtitles and len(staged_srt) != len(staged_video):
+        raise RuntimeError(
+            "Hasil subtitle part tidak lengkap dan ekspor tidak dipasang."
+        )
 
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
     previous = _export_part_files(output_dir, base_name, ext)
+    if include_subtitles:
+        previous += _export_part_files(output_dir, base_name, ".srt")
+
+    staged_all = list(staged_video) + list(staged_srt)
 
     with tempfile.TemporaryDirectory(
         prefix=f".{output_dir.name}.backup-",
@@ -456,7 +490,7 @@ def _commit_staged_export_parts(
                 old.replace(backup)
                 backed_up.append((backup, old))
 
-            for new_part in staged:
+            for new_part in staged_all:
                 destination = output_dir / new_part.name
                 new_part.replace(destination)
                 installed.append(destination)
@@ -481,6 +515,7 @@ def export_segments(
     progress: Callable[[int, str], None] | None = None,
     log: Callable[[str], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
+    srt_path: Path | None = None,
 ) -> tuple[int, int]:
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     ext = source.suffix or ".mp4"
@@ -563,11 +598,28 @@ def export_segments(
                 f"({len(files)}/{expected} file valid)."
             )
 
+        if srt_path is not None:
+            ranges = _part_ranges_from_cuts(cut_times_ms, duration_ms)
+            subtitle_files = write_srt_parts(
+                srt_path,
+                staging_dir,
+                base_name,
+                ranges,
+            )
+            if len(subtitle_files) != expected:
+                raise RuntimeError(
+                    f"Subtitle selesai tetapi hasil part tidak lengkap "
+                    f"({len(subtitle_files)}/{expected} file)."
+                )
+            if log:
+                log(f"SRT: {len(subtitle_files)} part siap dan timestamp di-reset ke 00:00.")
+
         committed = _commit_staged_export_parts(
             staging_dir,
             output_dir,
             base_name,
             ext,
+            include_subtitles=srt_path is not None,
         )
         return len(committed), sum(p.stat().st_size for p in committed)
     finally:
@@ -584,6 +636,7 @@ def export_segments_smartcut(
     progress: Callable[[int, str], None] | None = None,
     log: Callable[[str], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
+    srt_path: Path | None = None,
 ) -> tuple[int, int]:
     """Frame-accurate export using the SmartCut companion.
 
@@ -719,11 +772,31 @@ def export_segments_smartcut(
                     f"SmartCut Part-{idx:02d} selesai",
                 )
 
+        if srt_path is not None:
+            subtitle_ranges = [
+                (int(start[0]), int(end[0]))
+                for start, end in ranges
+            ]
+            subtitle_files = write_srt_parts(
+                srt_path,
+                staging_dir,
+                base_name,
+                subtitle_ranges,
+            )
+            if len(subtitle_files) != len(ranges):
+                raise RuntimeError(
+                    f"Subtitle selesai tetapi hasil part tidak lengkap "
+                    f"({len(subtitle_files)}/{len(ranges)} file)."
+                )
+            if log:
+                log(f"SRT: {len(subtitle_files)} part siap dan timestamp di-reset ke 00:00.")
+
         committed = _commit_staged_export_parts(
             staging_dir,
             output_dir,
             base_name,
             ext,
+            include_subtitles=srt_path is not None,
         )
         return len(committed), sum(p.stat().st_size for p in committed)
     finally:
