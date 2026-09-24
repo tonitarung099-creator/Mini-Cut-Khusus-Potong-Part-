@@ -162,6 +162,29 @@ class SubtitlePartExportTests(unittest.TestCase):
 
             self.assertEqual(track.cues[0].text, "Halo dunia")
 
+    def test_parser_rejects_reversed_or_zero_duration_cue(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reversed_path = root / "reversed.srt"
+            reversed_path.write_text(
+                "1\n"
+                "00:00:02,000 --> 00:00:01,000\n"
+                "Jangan hilangkan dialog ini\n",
+                encoding="utf-8",
+            )
+            zero_path = root / "zero.srt"
+            zero_path.write_text(
+                "1\n"
+                "00:00:01,000 --> 00:00:01,000\n"
+                "Durasi nol\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "Durasi cue SRT tidak valid"):
+                SubtitleTrack.load(reversed_path)
+            with self.assertRaisesRegex(ValueError, "Durasi cue SRT tidak valid"):
+                SubtitleTrack.load(zero_path)
+
     def test_write_srt_parts_creates_matching_part_names(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
