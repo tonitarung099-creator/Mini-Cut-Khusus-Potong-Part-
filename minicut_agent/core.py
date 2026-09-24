@@ -307,6 +307,16 @@ class ProjectModel:
         marks = [0] + [c.actual_ms for c in self.cuts] + [self.duration_ms]
         return [(marks[i], marks[i + 1]) for i in range(len(marks) - 1)]
 
+    def has_non_keyframe_cuts(self) -> bool:
+        """True when at least one current cut is not a probed keyframe."""
+        if not self.cuts:
+            return False
+        keyframes = {int(value) for value in self.keyframes}
+        return any(
+            int(cut.actual_ms) not in keyframes
+            for cut in self.cuts
+        )
+
     def state(self) -> dict[str, Any]:
         return {
             "source": str(self.source) if self.source else None,
