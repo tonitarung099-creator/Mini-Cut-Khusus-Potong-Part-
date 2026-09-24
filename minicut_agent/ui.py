@@ -2560,7 +2560,7 @@ class MiniCutWindow(QMainWindow):
 
     # ---------- AI Film Cut / Gemini ----------
     def _choose_srt(self) -> bool:
-        if self.film_cut_worker and self.film_cut_worker.isRunning():
+        if self.film_cut_worker is not None:
             QMessageBox.information(
                 self,
                 APP_TITLE,
@@ -2604,7 +2604,7 @@ class MiniCutWindow(QMainWindow):
         return True
 
     def _clear_srt(self):
-        if self.film_cut_worker and self.film_cut_worker.isRunning():
+        if self.film_cut_worker is not None:
             QMessageBox.information(
                 self,
                 APP_TITLE,
@@ -2780,7 +2780,13 @@ class MiniCutWindow(QMainWindow):
         if not self.srt_path or not self.srt_path.is_file():
             QMessageBox.warning(self, APP_TITLE, "Pilih file SRT yang sesuai dengan film.")
             return
-        if self.film_cut_worker and self.film_cut_worker.isRunning():
+        if self.film_cut_worker is not None:
+            if not self.film_cut_worker.isRunning():
+                QMessageBox.information(
+                    self,
+                    APP_TITLE,
+                    "AI Film Cut sedang memfinalisasi hasil. Coba lagi setelah status selesai.",
+                )
             return
 
         key_id = self.gemini_keys.active_id()
@@ -3413,10 +3419,14 @@ class MiniCutWindow(QMainWindow):
         self._require_tool_media_ready()
         if not self.model.source:
             raise ValueError("Belum ada video.")
-        if self.film_cut_worker and self.film_cut_worker.isRunning():
-            raise RuntimeError("Tunggu AI Film Cut selesai sebelum ekspor.")
-        if self.export_worker and self.export_worker.isRunning():
-            raise RuntimeError("Ekspor sedang berjalan.")
+        if self.film_cut_worker is not None:
+            raise RuntimeError(
+                "Tunggu AI Film Cut selesai dan hasilnya difinalisasi sebelum ekspor."
+            )
+        if self.export_worker is not None:
+            raise RuntimeError(
+                "Ekspor sedang berjalan atau sedang memfinalisasi hasil."
+            )
         ffmpeg = find_tool("ffmpeg")
         if not ffmpeg:
             raise RuntimeError("ffmpeg tidak ditemukan. Pastikan FFmpeg tersedia.")
