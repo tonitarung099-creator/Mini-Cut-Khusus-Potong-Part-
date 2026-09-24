@@ -2566,7 +2566,7 @@ class MiniCutWindow(QMainWindow):
 
     # ---------- AI Film Cut / Gemini ----------
     def _choose_srt(self) -> bool:
-        if self.film_cut_worker is not None:
+        if getattr(self, "film_cut_worker", None) is not None:
             QMessageBox.information(
                 self,
                 APP_TITLE,
@@ -2610,7 +2610,7 @@ class MiniCutWindow(QMainWindow):
         return True
 
     def _clear_srt(self):
-        if self.film_cut_worker is not None:
+        if getattr(self, "film_cut_worker", None) is not None:
             QMessageBox.information(
                 self,
                 APP_TITLE,
@@ -2786,7 +2786,7 @@ class MiniCutWindow(QMainWindow):
         if not self.srt_path or not self.srt_path.is_file():
             QMessageBox.warning(self, APP_TITLE, "Pilih file SRT yang sesuai dengan film.")
             return
-        if self.film_cut_worker is not None:
+        if getattr(self, "film_cut_worker", None) is not None:
             if not self.film_cut_worker.isRunning():
                 QMessageBox.information(
                     self,
@@ -3429,11 +3429,11 @@ class MiniCutWindow(QMainWindow):
         self._require_tool_media_ready()
         if not self.model.source:
             raise ValueError("Belum ada video.")
-        if self.film_cut_worker is not None:
+        if getattr(self, "film_cut_worker", None) is not None:
             raise RuntimeError(
                 "Tunggu AI Film Cut selesai dan hasilnya difinalisasi sebelum ekspor."
             )
-        if self.export_worker is not None:
+        if getattr(self, "export_worker", None) is not None:
             raise RuntimeError(
                 "Ekspor sedang berjalan atau sedang memfinalisasi hasil."
             )
