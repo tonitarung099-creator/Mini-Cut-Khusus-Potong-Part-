@@ -4,7 +4,10 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-_TIME_RE = re.compile(r"(?P<h>\d+):(?P<m>\d{2}):(?P<s>\d{2})[,.](?P<ms>\d{1,3})")
+_TIME_RE = re.compile(
+    r"(?<!\d)(?P<h>\d+):(?P<m>\d{2}):(?P<s>\d{2})"
+    r"[,.](?P<ms>\d{1,3})(?!\d)"
+)
 
 def _time_ms(text: str) -> int:
     m = _TIME_RE.search(text.strip())
