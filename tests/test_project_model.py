@@ -169,6 +169,66 @@ class SmartCutExactPtsTests(unittest.TestCase):
         )
 
 
+class SrtExportIntegrationTests(unittest.TestCase):
+    def test_fast_export_installs_matching_srt_parts_with_zero_based_timing(self):
+        class SuccessProc:
+            def __init__(self, cmd):
+                self.stdout = io.StringIO("out_time_ms=10000000\n")
+                out_dir = Path(cmd[-1]).parent
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "movie_Part-01.mp4").write_bytes(b"part-1")
+                (out_dir / "movie_Part-02.mp4").write_bytes(b"part-2")
+
+            def wait(self, timeout=None):
+                return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            srt = root / "movie.srt"
+            srt.write_text(
+                "1\n"
+                "00:00:04,500 --> 00:00:06,500\n"
+                "lintas batas\n\n"
+                "2\n"
+                "00:00:07,000 --> 00:00:08,000\n"
+                "part dua\n",
+                encoding="utf-8",
+            )
+            out = root / "movie_Parts"
+
+            with patch(
+                "minicut_agent.core.subprocess.Popen",
+                side_effect=lambda cmd, **kwargs: SuccessProc(cmd),
+            ):
+                count, _size = export_segments(
+                    "ffmpeg",
+                    root / "movie.mp4",
+                    out,
+                    "movie",
+                    [5_000],
+                    10_000,
+                    srt_path=srt,
+                )
+
+            self.assertEqual(count, 2)
+            self.assertTrue((out / "movie_Part-01.mp4").is_file())
+            self.assertTrue((out / "movie_Part-02.mp4").is_file())
+            part1 = (out / "movie_Part-01.srt").read_text(encoding="utf-8")
+            part2 = (out / "movie_Part-02.srt").read_text(encoding="utf-8")
+            self.assertIn(
+                "00:00:04,500 --> 00:00:05,000\nlintas batas",
+                part1,
+            )
+            self.assertIn(
+                "00:00:00,000 --> 00:00:01,500\nlintas batas",
+                part2,
+            )
+            self.assertIn(
+                "00:00:02,000 --> 00:00:03,000\npart dua",
+                part2,
+            )
+
+
 class ProjectAtomicSaveTests(unittest.TestCase):
     def test_project_save_replaces_temp_and_leaves_valid_json(self):
         with tempfile.TemporaryDirectory() as td:
