@@ -131,6 +131,46 @@ class FastExportZeroCutTests(unittest.TestCase):
                 )
 
 
+class FastExportCutNormalizationTests(unittest.TestCase):
+    def test_duplicate_and_out_of_range_fast_cuts_are_normalized(self):
+        captured = {}
+
+        class SuccessProc:
+            def __init__(self, cmd):
+                captured["cmd"] = cmd
+                self.stdout = io.StringIO("out_time_ms=10000000\n")
+                out_dir = Path(cmd[-1]).parent
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "movie_Part-01.mp4").write_bytes(b"one")
+                (out_dir / "movie_Part-02.mp4").write_bytes(b"two")
+
+            def wait(self, timeout=None):
+                return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            out = root / "parts"
+            with patch(
+                "minicut_agent.core.subprocess.Popen",
+                side_effect=lambda cmd, **kwargs: SuccessProc(cmd),
+            ):
+                count, _size = export_segments(
+                    "ffmpeg",
+                    root / "movie.mp4",
+                    out,
+                    "movie",
+                    [5_000, 5_000, -1, 0, 10_000, 15_000],
+                    10_000,
+                )
+
+            self.assertEqual(count, 2)
+            cmd = captured["cmd"]
+            self.assertEqual(
+                cmd[cmd.index("-segment_times") + 1],
+                "5.000",
+            )
+
+
 class SmartCutExactPtsTests(unittest.TestCase):
     def test_smartcut_receives_exact_rational_pts_without_ms_rounding(self):
         captured = []
