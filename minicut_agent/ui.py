@@ -3318,16 +3318,20 @@ class MiniCutWindow(QMainWindow):
             bool(str(c.exact_time or "").strip())
             for c in self.model.cuts
         )
-        if mode == "fast" and has_exact_cuts:
-            # Hanya cut exact dari Gemini yang wajib SmartCut. Cut keyframe biasa
-            # tetap boleh memakai Fast Copy.
+        has_non_keyframe_cuts = self.model.has_non_keyframe_cuts()
+        if mode == "fast" and (has_exact_cuts or has_non_keyframe_cuts):
             smart_index = self.export_mode.findData("smartcut")
             if smart_index >= 0:
                 self.export_mode.setCurrentIndex(smart_index)
             mode = "smartcut"
+            if has_exact_cuts:
+                reason = "timeline memiliki cut PTS exact"
+            else:
+                reason = "timeline memiliki cut yang bukan keyframe"
             self._log(
-                "Fast Copy dilewati: timeline memiliki cut PTS exact dari Gemini. "
-                "SmartCut dipakai agar frame pilihan Gemini tidak bergeser."
+                "Fast Copy dilewati: "
+                + reason
+                + ". SmartCut dipakai agar video dan SRT tetap sinkron."
             )
         smartcut_exe = None
         if mode == "smartcut":
