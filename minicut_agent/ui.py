@@ -2478,6 +2478,8 @@ class MiniCutWindow(QMainWindow):
         self._srt_user_disabled = False
         self.srt_edit.setText(str(self.srt_path))
         if changed:
+            if self.model.source:
+                self.model.dirty = True
             self.film_cut_results = []
             if hasattr(self, "film_table"):
                 self.film_table.setRowCount(0)
@@ -2492,10 +2494,12 @@ class MiniCutWindow(QMainWindow):
         return True
 
     def _clear_srt(self):
-        changed = self.srt_path is not None
+        changed = self.srt_path is not None or not self._srt_user_disabled
         self.srt_path = None
         self._srt_auto_disabled = True
         self._srt_user_disabled = True
+        if changed and self.model.source:
+            self.model.dirty = True
         if hasattr(self, "srt_edit"):
             self.srt_edit.clear()
             self.srt_edit.setPlaceholderText("Belum ada SRT")
