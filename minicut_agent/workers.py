@@ -49,6 +49,7 @@ class ExportWorker(QThread):
         mode: str = "fast",
         smartcut_exe: str | None = None,
         exact_cuts: list[str | None] | None = None,
+        srt_path: Path | None = None,
     ):
         super().__init__()
         self.ffmpeg = ffmpeg
@@ -60,6 +61,7 @@ class ExportWorker(QThread):
         self.mode = mode
         self.smartcut_exe = smartcut_exe
         self.exact_cuts = list(exact_cuts or [])
+        self.srt_path = Path(srt_path).resolve() if srt_path is not None else None
         self._cancel = False
 
     def cancel(self):
@@ -82,6 +84,7 @@ class ExportWorker(QThread):
                     progress=lambda p, t: self.progress_changed.emit(p, t),
                     log=lambda s: self.log_line.emit(s),
                     cancelled=lambda: self._cancel,
+                    srt_path=self.srt_path,
                 )
             else:
                 count, size = export_segments(
@@ -94,6 +97,7 @@ class ExportWorker(QThread):
                     progress=lambda p, t: self.progress_changed.emit(p, t),
                     log=lambda s: self.log_line.emit(s),
                     cancelled=lambda: self._cancel,
+                    srt_path=self.srt_path,
                 )
             self.done.emit(str(self.output_dir), count, size, time.time() - started)
         except InterruptedError:
