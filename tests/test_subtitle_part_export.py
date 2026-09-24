@@ -54,6 +54,18 @@ class SubtitlePartExportTests(unittest.TestCase):
             self.assertTrue(part2.startswith("1\n00:00:00,000"))
             self.assertIn("\n\n2\n00:00:02,000 --> 00:00:03,000\nPart dua", part2)
 
+    def test_multiline_export_stays_multiline_but_gemini_context_stays_compact(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            track = SubtitleTrack.load(self._source_srt(root))
+
+            exported = track.to_srt_range(0, 5_000)
+            context = track.between_text(0, 5_000)
+
+            self.assertIn("Halo\ndunia", exported)
+            self.assertIn("Halo dunia", context)
+            self.assertNotIn("Halo\ndunia", context)
+
     def test_write_srt_parts_creates_matching_part_names(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
