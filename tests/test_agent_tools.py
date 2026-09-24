@@ -160,6 +160,31 @@ class UndoStateTests(unittest.TestCase):
         )
 
 
+class SubtitleProjectDirtyTests(unittest.TestCase):
+    def test_clearing_subtitle_marks_loaded_project_dirty(self):
+        class Host:
+            _clear_srt = MiniCutWindow._clear_srt
+
+            def _log(self, _text):
+                pass
+
+        host = Host()
+        host.model = ProjectModel()
+        host.model.source = __import__("pathlib").Path("movie.mp4")
+        host.model.dirty = False
+        host.srt_path = __import__("pathlib").Path("movie.srt")
+        host._srt_auto_disabled = False
+        host._srt_user_disabled = False
+        host.film_cut_results = []
+
+        host._clear_srt()
+
+        self.assertTrue(host.model.dirty)
+        self.assertTrue(host._srt_auto_disabled)
+        self.assertTrue(host._srt_user_disabled)
+        self.assertIsNone(host.srt_path)
+
+
 class FilmCutApplyResultTests(unittest.TestCase):
     def test_declining_replace_does_not_report_success(self):
         class Host:
