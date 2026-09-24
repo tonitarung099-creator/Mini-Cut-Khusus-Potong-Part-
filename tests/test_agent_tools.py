@@ -252,6 +252,50 @@ class SubtitleFilmCutConcurrencyTests(unittest.TestCase):
         self.assertFalse(host._srt_user_disabled)
 
 
+class WorkerFinalizationRaceTests(unittest.TestCase):
+    def test_choose_subtitle_stays_blocked_until_film_worker_callback_finishes(self):
+        class Host:
+            _choose_srt = MiniCutWindow._choose_srt
+
+        host = Host()
+        host.film_cut_worker = _StoppedWorker()
+
+        with patch(
+            "minicut_agent.ui.QMessageBox.information",
+        ) as info, patch(
+            "minicut_agent.ui.QFileDialog.getOpenFileName",
+        ) as picker:
+            selected = host._choose_srt()
+
+        self.assertFalse(selected)
+        info.assert_called_once()
+        picker.assert_not_called()
+
+    def test_export_stays_blocked_until_previous_export_callback_finishes(self):
+        import tempfile
+        from pathlib import Path
+
+        class Host:
+            _require_tool_project_ready = MiniCutWindow._require_tool_project_ready
+            _require_tool_media_ready = MiniCutWindow._require_tool_media_ready
+            tool_export_all = MiniCutWindow.tool_export_all
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "movie.mp4"
+            source.write_bytes(b"video")
+
+            host = Host()
+            host.model = ProjectModel()
+            host.model.source = source
+            host.model.duration_ms = 1_000
+            host.analyze_worker = None
+            host.film_cut_worker = None
+            host.export_worker = _StoppedWorker()
+
+            with self.assertRaisesRegex(RuntimeError, "memfinalisasi"):
+                host.tool_export_all()
+
+
 class SubtitleProjectDirtyTests(unittest.TestCase):
     def test_clearing_subtitle_marks_loaded_project_dirty(self):
         class Host:
@@ -428,6 +472,11 @@ class BridgeUndoTests(unittest.TestCase):
         self.assertTrue(call.event.is_set())
         self.assertFalse(call.result["ok"])
         self.assertEqual(host.undo_stack, [])
+
+
+class _StoppedWorker:
+    def isRunning(self):
+        return False
 
 
 class _RunningWorker:
