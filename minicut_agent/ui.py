@@ -1771,7 +1771,13 @@ class MiniCutWindow(QMainWindow):
             results = self.planner.apply(self.pending_plan)
             executed_steps = [item["step"] for item in results]
             if any(step["tool"] in MUTATING_TOOLS for step in executed_steps):
-                self.undo_stack.append(before)
+                undo_snapshot = dict(before)
+                if any(step["tool"] == "save_project" for step in executed_steps):
+                    # File di disk sudah berisi state baru. Jika user Undo,
+                    # state lama harus dianggap belum tersimpan agar tidak
+                    # terlihat sinkron padahal berbeda dengan file proyek.
+                    undo_snapshot["dirty"] = True
+                self.undo_stack.append(undo_snapshot)
             self.plan_preview.setPlainText(json.dumps(
                 {"plan": self.pending_plan, "results": results}, ensure_ascii=False, indent=2
             ))
@@ -3413,7 +3419,11 @@ class MiniCutWindow(QMainWindow):
         )
         self.status.setText("Proyek tersimpan · " + str(path))
         self._refresh()
-        return {"ok": True, "path": str(path)}
+        return {
+            "ok": True,
+            "path": str(path),
+            "stop_plan": True,
+        }
 
     def tool_export_all(self):
         self._require_tool_media_ready()
