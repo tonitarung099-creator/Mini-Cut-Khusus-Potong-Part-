@@ -431,14 +431,33 @@ def _clear_export_parts(output_dir: Path, base_name: str, ext: str) -> None:
 
 
 def _generated_video_part_files(output_dir: Path, base_name: str) -> list[Path]:
-    """List numeric MiniCut part files across every supported video extension."""
-    files: list[Path] = []
-    for ext in sorted(SUPPORTED_VIDEO):
-        files.extend(_export_part_files(output_dir, base_name, ext))
-    return sorted(
-        set(files),
-        key=lambda path: (path.stem, path.suffix.lower()),
+    """List numeric MiniCut part files across supported video extensions.
+
+    Extension matching is case-insensitive because Windows users may open
+    sources named .MP4/.MKV and MiniCut preserves the source suffix on export.
+    """
+    if not output_dir.is_dir():
+        return []
+    pattern = re.compile(
+        rf"^{re.escape(base_name)}_Part-(?P<number>\d+)(?P<ext>\.[^.]+)$"
     )
+    matched: list[tuple[int, Path]] = []
+    for path in output_dir.iterdir():
+        if not path.is_file():
+            continue
+        match = pattern.fullmatch(path.name)
+        if not match:
+            continue
+        if match.group("ext").lower() not in SUPPORTED_VIDEO:
+            continue
+        matched.append((int(match.group("number")), path))
+    return [
+        path
+        for _number, path in sorted(
+            matched,
+            key=lambda item: (item[0], item[1].suffix.lower(), item[1].name),
+        )
+    ]
 
 
 def _part_ranges_from_cuts(
