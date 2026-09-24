@@ -464,16 +464,32 @@ def _commit_staged_export_parts(
         if include_subtitles
         else []
     )
-    if include_subtitles and len(staged_srt) != len(staged_video):
-        raise RuntimeError(
-            "Hasil subtitle part tidak lengkap dan ekspor tidak dipasang."
-        )
+    if include_subtitles:
+        if len(staged_srt) != len(staged_video):
+            raise RuntimeError(
+                "Hasil subtitle part tidak lengkap dan ekspor tidak dipasang."
+            )
+        video_numbers = [
+            int(re.search(r"_Part-(\d+)", path.stem).group(1))
+            for path in staged_video
+        ]
+        subtitle_numbers = [
+            int(re.search(r"_Part-(\d+)", path.stem).group(1))
+            for path in staged_srt
+        ]
+        if subtitle_numbers != video_numbers:
+            raise RuntimeError(
+                "Nomor part subtitle tidak cocok dengan part video."
+            )
 
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Selalu perlakukan SRT hasil MiniCut lama sebagai bagian dari transaksi.
+    # Jika ekspor terbaru tidak memakai SRT, companion lama harus dihapus agar
+    # tidak terlihat seolah masih sinkron dengan video baru.
     previous = _export_part_files(output_dir, base_name, ext)
-    if include_subtitles:
-        previous += _export_part_files(output_dir, base_name, ".srt")
+    previous += _export_part_files(output_dir, base_name, ".srt")
 
     staged_all = list(staged_video) + list(staged_srt)
 
