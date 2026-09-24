@@ -273,7 +273,7 @@ class MiniCutWindow(QMainWindow):
         self.open_video_btn.clicked.connect(self._choose_video)
         self.open_project_btn.clicked.connect(self._choose_project)
         self.save_btn.clicked.connect(lambda: self.tool_save_project())
-        self.export_btn.clicked.connect(lambda: self.tool_export_all())
+        self.export_btn.clicked.connect(self._export_from_ui)
         self.play_btn.clicked.connect(self._toggle_play)
         self.back_btn.clicked.connect(lambda: self._step_frame(-1))
         self.forward_btn.clicked.connect(lambda: self._step_frame(1))
@@ -2378,6 +2378,16 @@ class MiniCutWindow(QMainWindow):
         if not path:
             return False
         new_path = Path(path).resolve()
+        try:
+            SubtitleTrack.load(new_path)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                APP_TITLE,
+                "SRT tidak dapat dipakai:\n" + str(exc),
+            )
+            return False
+
         changed = self.srt_path != new_path
         self.srt_path = new_path
         self.srt_edit.setText(str(self.srt_path))
@@ -2390,7 +2400,7 @@ class MiniCutWindow(QMainWindow):
             if hasattr(self, "film_preview_btn"):
                 self.film_preview_btn.setEnabled(False)
         self.film_status_label.setText(
-            "SRT siap. MiniCut akan menggunakannya untuk verifikasi dialog."
+            "SRT siap. MiniCut akan menggunakannya untuk verifikasi dialog dan ekspor part."
             + (" Hasil AI lama dibersihkan." if changed else "")
         )
         return True
@@ -3336,6 +3346,19 @@ class MiniCutWindow(QMainWindow):
         return sorted(set(issues))
 
     # ---------- export ----------
+    def _export_from_ui(self):
+        """Jalankan ekspor dari tombol UI dengan error yang terlihat pengguna."""
+        try:
+            self.tool_export_all()
+        except Exception as exc:
+            self.status.setText("Ekspor belum dimulai.")
+            self._log("Ekspor ditolak: " + str(exc))
+            QMessageBox.critical(
+                self,
+                APP_TITLE,
+                "Ekspor tidak dapat dimulai:\n" + str(exc),
+            )
+
     def _export_progress(self, pct: int, text: str):
         self.progress.setValue(pct)
         self.status.setText(f"Ekspor {pct}% · {text}")
