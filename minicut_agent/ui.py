@@ -20,7 +20,7 @@ from .agent import AgentPlanner, MUTATING_TOOLS, ToolRegistry
 from .bridge import BridgeCall, LocalBridge
 from .core import (
     CutPoint, ProjectModel, SUPPORTED_VIDEO, clock_text, find_tool,
-    load_project_file, parse_time_ms
+    load_project_file, parse_time_ms, resolve_project_subtitle
 )
 from .gemini import DEFAULT_MODEL
 from .frame_resolver import probe_frame_timestamps
@@ -1304,20 +1304,87 @@ class MiniCutWindow(QMainWindow):
 
         # Subtitle dan hasil AI selalu terkait video tertentu. Jangan membawa
         # SRT/hasil Film Cut dari media sebelumnya ke video yang baru dibuka.
-        # Jika ada NamaVideo.srt di folder yang sama, pakai otomatis agar ekspor
-        # MP4 + SRT per part tidak membutuhkan pemilihan ulang.
-        auto_srt = source.with_suffix(".srt")
-        auto_srt_error = ""
+        # Proyek baru menyimpan pilihan SRT manual + status video-only. Proyek
+        # lama tetap memakai auto-detect NamaVideo.srt agar kompatibel.
         self.srt_path = None
         self._srt_auto_disabled = False
-        if auto_srt.is_file():
-            try:
-                SubtitleTrack.load(auto_srt)
-            except Exception as exc:
-                auto_srt_error = str(exc)
-                self._srt_auto_disabled = True
+        subtitle_status = ""
+        subtitle_log_warning = ""
+
+        project_subtitle = None
+        project_setting_present = False
+        project_auto_disabled = False
+        if data and project_path:
+            (
+                project_subtitle,
+                project_auto_disabled,
+                project_setting_present,
+            ) = resolve_project_subtitle(data, project_path)
+
+        if project_setting_present:
+            self._srt_auto_disabled = bool(project_auto_disabled)
+            if project_auto_disabled:
+                subtitle_status = (
+                    "Proyek memulihkan mode video-only. Pilih SRT bila ingin "
+                    "subtitle ikut dianalisis/diekspor."
+                )
+            elif project_subtitle is not None:
+                try:
+                    SubtitleTrack.load(project_subtitle)
+                except Exception as exc:
+                    self._srt_auto_disabled = True
+                    subtitle_log_warning = (
+                        "SRT proyek tidak valid: "
+                        + str(project_subtitle)
+                        + " · "
+                        + str(exc)
+                    )
+                    subtitle_status = (
+                        "SRT yang tersimpan di proyek tidak valid. "
+                        "Pilih ulang SRT sebelum Analisis Film."
+                    )
+                else:
+                    self.srt_path = project_subtitle.resolve()
+                    subtitle_status = (
+                        "SRT dari proyek dipulihkan dan siap untuk "
+                        "Analisis Film + ekspor part."
+                    )
             else:
-                self.srt_path = auto_srt.resolve()
+                self._srt_auto_disabled = True
+                subtitle_log_warning = (
+                    "SRT yang tersimpan di proyek sudah tidak ditemukan."
+                )
+                subtitle_status = (
+                    "SRT yang tersimpan di proyek tidak ditemukan. "
+                    "Pilih ulang SRT sebelum Analisis Film."
+                )
+        else:
+            auto_srt = source.with_suffix(".srt")
+            if auto_srt.is_file():
+                try:
+                    SubtitleTrack.load(auto_srt)
+                except Exception as exc:
+                    self._srt_auto_disabled = True
+                    subtitle_log_warning = (
+                        "SRT otomatis diabaikan karena tidak valid: "
+                        + str(auto_srt)
+                        + " · "
+                        + str(exc)
+                    )
+                    subtitle_status = (
+                        "SRT dengan nama yang sama ditemukan tetapi tidak valid. "
+                        "Pilih SRT lain atau ekspor video tanpa subtitle."
+                    )
+                else:
+                    self.srt_path = auto_srt.resolve()
+                    subtitle_status = (
+                        "SRT otomatis ditemukan dan siap untuk "
+                        "Analisis Film + ekspor part."
+                    )
+            else:
+                subtitle_status = (
+                    "Video baru dibuka. Pilih SRT yang sesuai sebelum Analisis Film."
+                )
 
         if hasattr(self, "srt_edit"):
             if self.srt_path:
@@ -1326,19 +1393,7 @@ class MiniCutWindow(QMainWindow):
                 self.srt_edit.clear()
                 self.srt_edit.setPlaceholderText("Belum ada SRT")
         if hasattr(self, "film_status_label"):
-            if self.srt_path:
-                self.film_status_label.setText(
-                    "SRT otomatis ditemukan dan siap untuk Analisis Film + ekspor part."
-                )
-            elif auto_srt_error:
-                self.film_status_label.setText(
-                    "SRT dengan nama yang sama ditemukan tetapi tidak valid. "
-                    "Pilih SRT lain atau ekspor video tanpa subtitle."
-                )
-            else:
-                self.film_status_label.setText(
-                    "Video baru dibuka. Pilih SRT yang sesuai sebelum Analisis Film."
-                )
+            self.film_status_label.setText(subtitle_status)
 
         self.film_cut_results = []
         if hasattr(self, 'film_table'):
@@ -1352,13 +1407,8 @@ class MiniCutWindow(QMainWindow):
         self.progress.setValue(0)
         self.status.setText(f"Siap · {source.name} · {len(keyframes)} keyframe")
         self._log(f"Video dibuka: {source}")
-        if auto_srt_error:
-            self._log(
-                "SRT otomatis diabaikan karena tidak valid: "
-                + str(auto_srt)
-                + " · "
-                + auto_srt_error
-            )
+        if subtitle_log_warning:
+            self._log(subtitle_log_warning)
         if project_cut_warning:
             self._log("Peringatan proyek: " + project_cut_warning)
             QMessageBox.warning(self, APP_TITLE, project_cut_warning)
@@ -3203,7 +3253,11 @@ class MiniCutWindow(QMainWindow):
             if not selected:
                 return {"ok": False, "cancelled": True}
             path = Path(selected)
-        self.model.save(path)
+        self.model.save(
+            path,
+            subtitle_path=self.srt_path,
+            subtitle_auto_disabled=self._srt_auto_disabled,
+        )
         self.status.setText("Proyek tersimpan · " + str(path))
         self._refresh()
         return {"ok": True, "path": str(path)}
