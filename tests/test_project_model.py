@@ -229,6 +229,50 @@ class SrtExportIntegrationTests(unittest.TestCase):
             )
 
 
+    def test_smartcut_export_installs_matching_srt_parts(self):
+        class SmartCutProc:
+            def __init__(self, cmd):
+                Path(cmd[2]).write_bytes(b"smartcut-part")
+                self.returncode = 0
+
+            def poll(self):
+                return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            srt = root / "movie.srt"
+            srt.write_text(
+                "1\n"
+                "00:00:04,500 --> 00:00:06,500\n"
+                "lintas smartcut\n",
+                encoding="utf-8",
+            )
+            out = root / "movie_Parts"
+
+            with patch(
+                "minicut_agent.core.subprocess.Popen",
+                side_effect=lambda cmd, **kwargs: SmartCutProc(cmd),
+            ):
+                count, _size = export_segments_smartcut(
+                    "smartcut",
+                    root / "movie.mp4",
+                    out,
+                    "movie",
+                    [5_000],
+                    10_000,
+                    cut_exact_times=["5"],
+                    srt_path=srt,
+                )
+
+            self.assertEqual(count, 2)
+            self.assertTrue((out / "movie_Part-01.mp4").is_file())
+            self.assertTrue((out / "movie_Part-02.mp4").is_file())
+            self.assertIn(
+                "00:00:00,000 --> 00:00:01,500\nlintas smartcut",
+                (out / "movie_Part-02.srt").read_text(encoding="utf-8"),
+            )
+
+
 class ProjectAtomicSaveTests(unittest.TestCase):
     def test_project_save_replaces_temp_and_leaves_valid_json(self):
         with tempfile.TemporaryDirectory() as td:
