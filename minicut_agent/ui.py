@@ -83,6 +83,7 @@ class MiniCutWindow(QMainWindow):
         self.film_cut_results: list[dict] = []
         self.srt_path: Path | None = None
         self._srt_auto_disabled = False
+        self._srt_user_disabled = False
         self.gemini_keys = GeminiKeyStore()
         self._gemini_test_key_id: str | None = None
         self._gemini_chat_key_id: str | None = None
@@ -1308,6 +1309,7 @@ class MiniCutWindow(QMainWindow):
         # lama tetap memakai auto-detect NamaVideo.srt agar kompatibel.
         self.srt_path = None
         self._srt_auto_disabled = False
+        self._srt_user_disabled = False
         subtitle_status = ""
         subtitle_log_warning = ""
 
@@ -1323,6 +1325,7 @@ class MiniCutWindow(QMainWindow):
 
         if project_setting_present:
             self._srt_auto_disabled = bool(project_auto_disabled)
+            self._srt_user_disabled = bool(project_auto_disabled)
             if project_auto_disabled:
                 subtitle_status = (
                     "Proyek memulihkan mode video-only. Pilih SRT bila ingin "
@@ -2472,6 +2475,7 @@ class MiniCutWindow(QMainWindow):
         changed = self.srt_path != new_path
         self.srt_path = new_path
         self._srt_auto_disabled = False
+        self._srt_user_disabled = False
         self.srt_edit.setText(str(self.srt_path))
         if changed:
             self.film_cut_results = []
@@ -2491,6 +2495,7 @@ class MiniCutWindow(QMainWindow):
         changed = self.srt_path is not None
         self.srt_path = None
         self._srt_auto_disabled = True
+        self._srt_user_disabled = True
         if hasattr(self, "srt_edit"):
             self.srt_edit.clear()
             self.srt_edit.setPlaceholderText("Belum ada SRT")
@@ -3256,7 +3261,7 @@ class MiniCutWindow(QMainWindow):
         self.model.save(
             path,
             subtitle_path=self.srt_path,
-            subtitle_auto_disabled=self._srt_auto_disabled,
+            subtitle_auto_disabled=self._srt_user_disabled,
         )
         self.status.setText("Proyek tersimpan · " + str(path))
         self._refresh()
