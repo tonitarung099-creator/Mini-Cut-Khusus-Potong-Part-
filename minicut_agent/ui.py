@@ -82,6 +82,7 @@ class MiniCutWindow(QMainWindow):
         self._scrub_resume_after = False
         self.film_cut_results: list[dict] = []
         self.srt_path: Path | None = None
+        self._srt_auto_disabled = False
         self.gemini_keys = GeminiKeyStore()
         self._gemini_test_key_id: str | None = None
         self._gemini_chat_key_id: str | None = None
@@ -1308,11 +1309,13 @@ class MiniCutWindow(QMainWindow):
         auto_srt = source.with_suffix(".srt")
         auto_srt_error = ""
         self.srt_path = None
+        self._srt_auto_disabled = False
         if auto_srt.is_file():
             try:
                 SubtitleTrack.load(auto_srt)
             except Exception as exc:
                 auto_srt_error = str(exc)
+                self._srt_auto_disabled = True
             else:
                 self.srt_path = auto_srt.resolve()
 
@@ -2418,6 +2421,7 @@ class MiniCutWindow(QMainWindow):
 
         changed = self.srt_path != new_path
         self.srt_path = new_path
+        self._srt_auto_disabled = False
         self.srt_edit.setText(str(self.srt_path))
         if changed:
             self.film_cut_results = []
@@ -2436,6 +2440,7 @@ class MiniCutWindow(QMainWindow):
     def _clear_srt(self):
         changed = self.srt_path is not None
         self.srt_path = None
+        self._srt_auto_disabled = True
         if hasattr(self, "srt_edit"):
             self.srt_edit.clear()
             self.srt_edit.setPlaceholderText("Belum ada SRT")
@@ -3251,13 +3256,22 @@ class MiniCutWindow(QMainWindow):
                     "Pilih ulang SRT atau hapus pilihan subtitle sebelum ekspor."
                 )
             export_srt = self.srt_path.resolve()
-        else:
+        elif not self._srt_auto_disabled:
             auto_srt = self.model.source.with_suffix(".srt")
             if auto_srt.is_file():
-                export_srt = auto_srt.resolve()
-                self.srt_path = export_srt
-                if hasattr(self, "srt_edit"):
-                    self.srt_edit.setText(str(export_srt))
+                try:
+                    SubtitleTrack.load(auto_srt)
+                except Exception as exc:
+                    self._srt_auto_disabled = True
+                    self._log(
+                        "SRT otomatis diabaikan saat ekspor karena tidak valid: "
+                        + str(exc)
+                    )
+                else:
+                    export_srt = auto_srt.resolve()
+                    self.srt_path = export_srt
+                    if hasattr(self, "srt_edit"):
+                        self.srt_edit.setText(str(export_srt))
 
         if export_srt is not None:
             try:
