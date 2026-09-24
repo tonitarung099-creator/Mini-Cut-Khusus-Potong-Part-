@@ -273,6 +273,48 @@ class SrtExportIntegrationTests(unittest.TestCase):
             )
 
 
+    def test_smartcut_srt_boundary_uses_exact_pts_rounded_to_millisecond(self):
+        class SmartCutProc:
+            def __init__(self, cmd):
+                Path(cmd[2]).write_bytes(b"smartcut-part")
+                self.returncode = 0
+
+            def poll(self):
+                return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            srt = root / "movie.srt"
+            srt.write_text(
+                "1\n"
+                "00:00:00,040 --> 00:00:00,050\n"
+                "frame boundary\n",
+                encoding="utf-8",
+            )
+            out = root / "movie_Parts"
+
+            with patch(
+                "minicut_agent.core.subprocess.Popen",
+                side_effect=lambda cmd, **kwargs: SmartCutProc(cmd),
+            ):
+                export_segments_smartcut(
+                    "smartcut",
+                    root / "movie.mp4",
+                    out,
+                    "movie",
+                    [42],
+                    100,
+                    cut_exact_times=["41/1000"],
+                    srt_path=srt,
+                )
+
+            part2 = (out / "movie_Part-02.srt").read_text(encoding="utf-8")
+            self.assertIn(
+                "00:00:00,000 --> 00:00:00,009\nframe boundary",
+                part2,
+            )
+
+
 class ProjectAtomicSaveTests(unittest.TestCase):
     def test_project_save_replaces_temp_and_leaves_valid_json(self):
         with tempfile.TemporaryDirectory() as td:
@@ -417,6 +459,42 @@ class ExportStagingSafetyTests(unittest.TestCase):
             self.assertEqual(previous.read_bytes(), b"new-export")
             self.assertFalse(stale.exists())
 
+
+    def test_reexport_removes_stale_parts_from_previous_video_extension(self):
+        class SuccessProc:
+            def __init__(self, cmd):
+                self.stdout = io.StringIO("out_time_ms=2000000\n")
+                Path(cmd[-1]).write_bytes(b"new-mp4")
+
+            def wait(self, timeout=None):
+                return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            out = root / "movie_Parts"
+            out.mkdir()
+            stale_mkv = out / "movie_Part-01.mkv"
+            stale_mkv.write_bytes(b"old-mkv")
+            keep_user_file = out / "movie_Part-catatan.mkv"
+            keep_user_file.write_bytes(b"keep-me")
+
+            with patch(
+                "minicut_agent.core.subprocess.Popen",
+                side_effect=lambda cmd, **kwargs: SuccessProc(cmd),
+            ):
+                count, _size = export_segments(
+                    "ffmpeg",
+                    root / "movie.mp4",
+                    out,
+                    "movie",
+                    [],
+                    2_000,
+                )
+
+            self.assertEqual(count, 1)
+            self.assertFalse(stale_mkv.exists())
+            self.assertTrue((out / "movie_Part-01.mp4").is_file())
+            self.assertTrue(keep_user_file.exists())
 
     def test_reexport_without_srt_removes_old_generated_srt(self):
         class SuccessProc:
