@@ -80,8 +80,9 @@ class SubtitleTrack:
     def nearby_text(self, time_ms: int, radius_ms: int = 12_000, max_chars: int = 2400) -> str:
         rows = []
         for cue in self.nearby(time_ms, radius_ms):
+            compact_text = " ".join(cue.text.splitlines())
             rows.append(
-                f"{format_ms(cue.start_ms)} --> {format_ms(cue.end_ms)} | {cue.text}"
+                f"{format_ms(cue.start_ms)} --> {format_ms(cue.end_ms)} | {compact_text}"
             )
         return "\n".join(rows)[:max_chars]
 
@@ -102,8 +103,9 @@ class SubtitleTrack:
         """SRT bertimestamp untuk dipasangkan dengan blok visual yang sama."""
         rows = []
         for cue in self.between(start_ms, end_ms):
+            compact_text = " ".join(cue.text.splitlines())
             rows.append(
-                f"{format_ms(cue.start_ms)} --> {format_ms(cue.end_ms)} | {cue.text}"
+                f"{format_ms(cue.start_ms)} --> {format_ms(cue.end_ms)} | {compact_text}"
             )
         return "\n".join(rows)[:max_chars]
 
