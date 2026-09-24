@@ -407,13 +407,10 @@ def resolve_project_subtitle(
     Returns (subtitle_path, auto_disabled, setting_present). Relative path wins
     so project folders stay portable after being moved.
     """
-    setting_present = any(
-        key in data
-        for key in (
-            "subtitle_absolute",
-            "subtitle_relative",
-            "subtitle_auto_disabled",
-        )
+    setting_present = bool(
+        data.get("subtitle_absolute")
+        or data.get("subtitle_relative")
+        or data.get("subtitle_auto_disabled", False)
     )
     auto_disabled = bool(data.get("subtitle_auto_disabled", False))
     if auto_disabled:
