@@ -66,6 +66,41 @@ class SubtitlePartExportTests(unittest.TestCase):
             self.assertIn("Halo dunia", context)
             self.assertNotIn("Halo\ndunia", context)
 
+    def test_parser_accepts_missing_blank_line_between_cues(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "rapat.srt"
+            path.write_text(
+                "1\n"
+                "00:00:01,000 --> 00:00:02,000\n"
+                "Baris satu\n"
+                "2\n"
+                "00:00:03,000 --> 00:00:04,000\n"
+                "Baris dua\n",
+                encoding="utf-8",
+            )
+
+            track = SubtitleTrack.load(path)
+
+            self.assertEqual(len(track.cues), 2)
+            self.assertEqual(track.cues[0].text, "Baris satu")
+            self.assertEqual(track.cues[1].text, "Baris dua")
+            self.assertEqual(track.cues[1].start_ms, 3_000)
+
+    def test_parser_scales_short_fractional_milliseconds(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "fraction.srt"
+            path.write_text(
+                "1\n"
+                "00:00:01,5 --> 00:00:02,25\n"
+                "Tes pecahan\n",
+                encoding="utf-8",
+            )
+
+            track = SubtitleTrack.load(path)
+
+            self.assertEqual(track.cues[0].start_ms, 1_500)
+            self.assertEqual(track.cues[0].end_ms, 2_250)
+
     def test_write_srt_parts_creates_matching_part_names(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
