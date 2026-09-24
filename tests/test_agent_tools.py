@@ -24,6 +24,9 @@ class ToolManifestCoverageTests(unittest.TestCase):
     def test_apply_film_cut_is_treated_as_timeline_mutation(self):
         self.assertIn("apply_film_cut", MUTATING_TOOLS)
 
+    def test_choose_subtitle_is_treated_as_project_mutation(self):
+        self.assertIn("choose_subtitle", MUTATING_TOOLS)
+
     def test_every_manifest_tool_has_ui_executor(self):
         registry = ToolRegistry(object())
         missing = [
@@ -158,6 +161,48 @@ class UndoStateTests(unittest.TestCase):
             [cut.actual_ms for cut in host.model.cuts],
             [30_000],
         )
+
+
+    def test_undo_restores_subtitle_and_film_cut_state(self):
+        from pathlib import Path
+
+        host = _UndoHost()
+        host.srt_path = Path("before.srt")
+        host._srt_project_reference = Path("before.srt")
+        host._srt_auto_disabled = False
+        host._srt_user_disabled = False
+        host.film_cut_results = [{
+            "target_ms": 10_000,
+            "selected_time_ms": 10_040,
+            "confidence": 0.9,
+        }]
+        host.model.dirty = False
+        before = host._snapshot()
+
+        host.srt_path = Path("after.srt")
+        host._srt_project_reference = Path("after.srt")
+        host._srt_auto_disabled = True
+        host._srt_user_disabled = True
+        host.film_cut_results = []
+        host.model.dirty = True
+        host.undo_stack.append(before)
+
+        result = host.tool_undo()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(host.srt_path, Path("before.srt"))
+        self.assertEqual(
+            host._srt_project_reference,
+            Path("before.srt"),
+        )
+        self.assertFalse(host._srt_auto_disabled)
+        self.assertFalse(host._srt_user_disabled)
+        self.assertEqual(len(host.film_cut_results), 1)
+        self.assertEqual(
+            host.film_cut_results[0]["selected_time_ms"],
+            10_040,
+        )
+        self.assertFalse(host.model.dirty)
 
 
 class SubtitleProjectDirtyTests(unittest.TestCase):
