@@ -4,18 +4,26 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-_TIME_RE = re.compile(r"(?P<h>\d{1,2}):(?P<m>\d{2}):(?P<s>\d{2})[,.](?P<ms>\d{3})")
+_TIME_RE = re.compile(r"(?P<h>\d+):(?P<m>\d{2}):(?P<s>\d{2})[,.](?P<ms>\d{1,3})")
 
 def _time_ms(text: str) -> int:
     m = _TIME_RE.search(text.strip())
     if not m:
         raise ValueError(f"Timestamp SRT tidak valid: {text}")
+    milli = int(m.group("ms").ljust(3, "0"))
     return (
         int(m.group("h")) * 3_600_000
         + int(m.group("m")) * 60_000
         + int(m.group("s")) * 1_000
-        + int(m.group("ms"))
+        + milli
     )
+
+
+def _is_time_line(text: str) -> bool:
+    if "-->" not in text:
+        return False
+    left, right = text.split("-->", 1)
+    return bool(_TIME_RE.search(left.strip()) and _TIME_RE.search(right.strip()))
 
 @dataclass(frozen=True)
 class SubtitleCue:
@@ -31,35 +39,70 @@ class SubtitleTrack:
     @classmethod
     def load(cls, path: str | Path) -> "SubtitleTrack":
         raw = Path(path).read_text(encoding="utf-8-sig", errors="replace")
-        blocks = re.split(r"\r?\n\s*\r?\n", raw.strip())
+        lines = raw.splitlines()
         cues: list[SubtitleCue] = []
         fallback_index = 1
-        for block in blocks:
-            lines = [line.rstrip() for line in block.splitlines() if line.strip()]
-            if len(lines) < 2:
-                continue
-            if "-->" in lines[0]:
-                idx = fallback_index
-                time_line = lines[0]
-                text_lines = lines[1:]
-            else:
+        i = 0
+
+        while i < len(lines):
+            while i < len(lines) and not lines[i].strip():
+                i += 1
+            if i >= len(lines):
+                break
+
+            idx = fallback_index
+            if _is_time_line(lines[i]):
+                time_line = lines[i]
+                i += 1
+            elif i + 1 < len(lines) and _is_time_line(lines[i + 1]):
                 try:
-                    idx = int(lines[0].strip())
+                    idx = int(lines[i].strip())
                 except ValueError:
                     idx = fallback_index
-                if len(lines) < 3 or "-->" not in lines[1]:
-                    continue
-                time_line = lines[1]
-                text_lines = lines[2:]
+                time_line = lines[i + 1]
+                i += 2
+            else:
+                # Abaikan baris sampah/header tanpa membuang cue berikutnya.
+                i += 1
+                continue
+
+            text_lines: list[str] = []
+            while i < len(lines):
+                current = lines[i]
+
+                # Blank line normal adalah pemisah cue SRT.
+                if not current.strip():
+                    i += 1
+                    while i < len(lines) and not lines[i].strip():
+                        i += 1
+                    break
+
+                # Toleransi SRT tanpa blank line: timestamp berikutnya atau
+                # "nomor cue + timestamp" menandai cue baru.
+                if _is_time_line(current):
+                    break
+                if (
+                    i + 1 < len(lines)
+                    and current.strip().isdigit()
+                    and _is_time_line(lines[i + 1])
+                ):
+                    break
+
+                text_lines.append(current.rstrip())
+                i += 1
+
             left, right = time_line.split("-->", 1)
             start_ms, end_ms = _time_ms(left), _time_ms(right)
             if end_ms <= start_ms:
                 continue
-            # Pertahankan pemisah baris subtitle. Analisis AI tetap dapat membaca
-            # teksnya, sementara hasil ekspor SRT tidak meratakan dialog dua baris.
-            text = "\n".join(x.rstrip() for x in text_lines).strip("\n")
+
+            text = "\n".join(text_lines).strip("\n")
+            if not text:
+                continue
+
             cues.append(SubtitleCue(idx, start_ms, end_ms, text))
             fallback_index += 1
+
         if not cues:
             raise ValueError("SRT tidak berisi cue subtitle yang dapat dibaca.")
         return cls(cues)
