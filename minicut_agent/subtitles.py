@@ -121,7 +121,10 @@ class SubtitleTrack:
             left, right = time_line.split("-->", 1)
             start_ms, end_ms = _time_ms(left), _time_ms(right)
             if end_ms <= start_ms:
-                continue
+                raise ValueError(
+                    "Durasi cue SRT tidak valid: "
+                    + time_line.strip()
+                )
 
             text = "\n".join(text_lines).strip("\n")
             if not text:
