@@ -227,6 +227,71 @@ class UndoStateTests(unittest.TestCase):
         self.assertFalse(host.model.dirty)
 
 
+class SavedPlanUndoSafetyTests(unittest.TestCase):
+    def test_undo_snapshot_is_dirty_after_plan_that_saved_project(self):
+        class Sink:
+            def setPlainText(self, _text):
+                pass
+
+            def setEnabled(self, _enabled):
+                pass
+
+        class Host:
+            _snapshot = MiniCutWindow._snapshot
+            _apply_plan = MiniCutWindow._apply_plan
+
+            def __init__(self):
+                self.model = ProjectModel()
+                self.model.source = __import__("pathlib").Path("movie.mp4")
+                self.model.duration_ms = 120_000
+                self.model.cuts = [CutPoint(30_000, 30_000)]
+                self.model.dirty = False
+                self.undo_stack = []
+                self.pending_plan = {
+                    "summary": "ubah lalu simpan",
+                    "steps": [],
+                }
+                self.plan_preview = Sink()
+                self.apply_btn = Sink()
+
+            def _log(self, _text):
+                pass
+
+            def _refresh(self):
+                pass
+
+        host = Host()
+
+        class Planner:
+            def apply(self, _plan):
+                host.model.cuts = [CutPoint(60_000, 60_000)]
+                host.model.dirty = False
+                return [
+                    {
+                        "step": {"tool": "clear_cuts", "args": {}},
+                        "result": {"ok": True},
+                    },
+                    {
+                        "step": {"tool": "save_project", "args": {}},
+                        "result": {
+                            "ok": True,
+                            "path": "movie.minicut.json",
+                            "stop_plan": True,
+                        },
+                    },
+                ]
+
+        host.planner = Planner()
+        host._apply_plan()
+
+        self.assertEqual(len(host.undo_stack), 1)
+        self.assertTrue(host.undo_stack[0]["dirty"])
+        self.assertEqual(
+            [cut.actual_ms for cut in host.undo_stack[0]["cuts"]],
+            [30_000],
+        )
+
+
 class SubtitleFilmCutConcurrencyTests(unittest.TestCase):
     def test_choose_subtitle_is_blocked_while_film_cut_runs(self):
         class Host:
