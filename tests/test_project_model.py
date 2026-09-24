@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from minicut_agent.core import (
     CutPoint, ProjectModel, export_segments, export_segments_smartcut,
-    load_project_file
+    load_project_file, resolve_project_subtitle
 )
 
 
@@ -334,6 +334,83 @@ class ProjectAtomicSaveTests(unittest.TestCase):
             data = json.loads(project.read_text(encoding="utf-8"))
             self.assertEqual(data["app"], "MiniCut Studio")
             self.assertFalse(model.dirty)
+
+
+class SubtitleProjectPersistenceTests(unittest.TestCase):
+    def test_project_saves_and_resolves_relative_subtitle_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project_dir = root / "portable"
+            project_dir.mkdir()
+            source = project_dir / "movie.mp4"
+            subtitle = project_dir / "subtitle-custom.srt"
+            project = project_dir / "movie.minicut.json"
+            source.write_bytes(b"video")
+            subtitle.write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\nHalo\n",
+                encoding="utf-8",
+            )
+
+            model = ProjectModel()
+            model.source = source.resolve()
+            model.duration_ms = 2_000
+            model.save(project, subtitle_path=subtitle)
+
+            data, _source = load_project_file(project)
+            resolved, auto_disabled, present = resolve_project_subtitle(
+                data,
+                project,
+            )
+
+            self.assertTrue(present)
+            self.assertFalse(auto_disabled)
+            self.assertEqual(resolved, subtitle.resolve())
+            self.assertEqual(data["subtitle_relative"], "subtitle-custom.srt")
+
+    def test_project_persists_explicit_video_only_mode(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "movie.mp4"
+            project = root / "movie.minicut.json"
+            source.write_bytes(b"video")
+
+            model = ProjectModel()
+            model.source = source.resolve()
+            model.duration_ms = 2_000
+            model.save(project, subtitle_auto_disabled=True)
+
+            data, _source = load_project_file(project)
+            resolved, auto_disabled, present = resolve_project_subtitle(
+                data,
+                project,
+            )
+
+            self.assertTrue(present)
+            self.assertTrue(auto_disabled)
+            self.assertIsNone(resolved)
+
+    def test_legacy_project_without_subtitle_fields_remains_auto_mode(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = root / "legacy.minicut.json"
+            project.write_text(
+                json.dumps({
+                    "app": "MiniCut Studio",
+                    "version": 2,
+                    "cuts": [],
+                }),
+                encoding="utf-8",
+            )
+
+            data, _source = load_project_file(project)
+            resolved, auto_disabled, present = resolve_project_subtitle(
+                data,
+                project,
+            )
+
+            self.assertFalse(present)
+            self.assertFalse(auto_disabled)
+            self.assertIsNone(resolved)
 
 
 class ExactPtsProjectPersistenceTests(unittest.TestCase):
