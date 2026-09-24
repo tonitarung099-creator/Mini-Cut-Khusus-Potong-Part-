@@ -1229,7 +1229,8 @@ class MiniCutWindow(QMainWindow):
             answer = QMessageBox.question(
                 self,
                 APP_TITLE,
-                "Perubahan cut belum disimpan. Tetap buka video/proyek lain?",
+                "Perubahan proyek (cut/subtitle) belum disimpan. "
+                "Tetap buka video/proyek lain?",
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return False
