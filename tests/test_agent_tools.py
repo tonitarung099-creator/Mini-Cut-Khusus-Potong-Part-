@@ -185,6 +185,51 @@ class SubtitleProjectDirtyTests(unittest.TestCase):
         self.assertIsNone(host.srt_path)
 
 
+class SubtitleMissingReferenceTests(unittest.TestCase):
+    def test_saving_project_preserves_missing_subtitle_reference(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        class StatusStub:
+            def setText(self, _text):
+                pass
+
+        class Host:
+            _require_tool_project_ready = MiniCutWindow._require_tool_project_ready
+            tool_save_project = MiniCutWindow.tool_save_project
+
+            def _refresh(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "movie.mp4"
+            source.write_bytes(b"video")
+            project = root / "movie.minicut.json"
+            missing_srt = root / "custom-missing.srt"
+
+            host = Host()
+            host.model = ProjectModel()
+            host.model.source = source
+            host.model.duration_ms = 10_000
+            host.model.project_path = project
+            host.analyze_worker = None
+            host.srt_path = None
+            host._srt_project_reference = missing_srt
+            host._srt_user_disabled = False
+            host.status = StatusStub()
+
+            result = host.tool_save_project()
+
+            self.assertTrue(result["ok"])
+            data = json.loads(project.read_text(encoding="utf-8"))
+            self.assertEqual(
+                Path(data["subtitle_absolute"]),
+                missing_srt.resolve(),
+            )
+            self.assertFalse(data["subtitle_auto_disabled"])
+
 class FilmCutApplyResultTests(unittest.TestCase):
     def test_declining_replace_does_not_report_success(self):
         class Host:
