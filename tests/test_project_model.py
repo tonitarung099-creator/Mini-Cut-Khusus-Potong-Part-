@@ -567,8 +567,13 @@ class ExportStagingSafetyTests(unittest.TestCase):
                 )
 
             self.assertEqual(count, 1)
-            self.assertFalse(stale_upper.exists())
-            self.assertTrue((out / "movie_Part-01.mp4").is_file())
+            matching = [
+                path
+                for path in out.iterdir()
+                if path.name.lower() == "movie_part-01.mp4"
+            ]
+            self.assertEqual(len(matching), 1)
+            self.assertEqual(matching[0].read_bytes(), b"new-video")
 
     def test_reexport_removes_stale_parts_from_previous_video_extension(self):
         class SuccessProc:
