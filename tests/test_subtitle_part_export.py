@@ -101,6 +101,25 @@ class SubtitlePartExportTests(unittest.TestCase):
             self.assertEqual(track.cues[0].start_ms, 1_500)
             self.assertEqual(track.cues[0].end_ms, 2_250)
 
+    def test_parser_rejects_invalid_minute_or_second_fields(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bad_minute = root / "bad-minute.srt"
+            bad_minute.write_text(
+                "1\n00:61:00,000 --> 00:61:01,000\nSalah menit\n",
+                encoding="utf-8",
+            )
+            bad_second = root / "bad-second.srt"
+            bad_second.write_text(
+                "1\n00:00:70,000 --> 00:00:71,000\nSalah detik\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "di luar rentang"):
+                SubtitleTrack.load(bad_minute)
+            with self.assertRaisesRegex(ValueError, "di luar rentang"):
+                SubtitleTrack.load(bad_second)
+
     def test_write_srt_parts_creates_matching_part_names(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
