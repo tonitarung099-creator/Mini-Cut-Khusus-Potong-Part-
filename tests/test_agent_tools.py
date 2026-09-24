@@ -205,6 +205,53 @@ class UndoStateTests(unittest.TestCase):
         self.assertFalse(host.model.dirty)
 
 
+class SubtitleFilmCutConcurrencyTests(unittest.TestCase):
+    def test_choose_subtitle_is_blocked_while_film_cut_runs(self):
+        class Host:
+            _choose_srt = MiniCutWindow._choose_srt
+
+        host = Host()
+        host.film_cut_worker = _RunningWorker()
+
+        with patch(
+            "minicut_agent.ui.QMessageBox.information",
+        ) as info, patch(
+            "minicut_agent.ui.QFileDialog.getOpenFileName",
+        ) as picker:
+            selected = host._choose_srt()
+
+        self.assertFalse(selected)
+        info.assert_called_once()
+        picker.assert_not_called()
+
+    def test_clear_subtitle_is_blocked_while_film_cut_runs(self):
+        from pathlib import Path
+
+        class Host:
+            _clear_srt = MiniCutWindow._clear_srt
+
+        host = Host()
+        host.film_cut_worker = _RunningWorker()
+        host.srt_path = Path("movie.srt")
+        host._srt_project_reference = Path("movie.srt")
+        host._srt_auto_disabled = False
+        host._srt_user_disabled = False
+
+        with patch(
+            "minicut_agent.ui.QMessageBox.information",
+        ) as info:
+            host._clear_srt()
+
+        info.assert_called_once()
+        self.assertEqual(host.srt_path, Path("movie.srt"))
+        self.assertEqual(
+            host._srt_project_reference,
+            Path("movie.srt"),
+        )
+        self.assertFalse(host._srt_auto_disabled)
+        self.assertFalse(host._srt_user_disabled)
+
+
 class SubtitleProjectDirtyTests(unittest.TestCase):
     def test_clearing_subtitle_marks_loaded_project_dirty(self):
         class Host:
