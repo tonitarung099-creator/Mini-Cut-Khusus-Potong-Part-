@@ -55,7 +55,9 @@ class SubtitleTrack:
             start_ms, end_ms = _time_ms(left), _time_ms(right)
             if end_ms <= start_ms:
                 continue
-            text = " ".join(x.strip() for x in text_lines).strip()
+            # Pertahankan pemisah baris subtitle. Analisis AI tetap dapat membaca
+            # teksnya, sementara hasil ekspor SRT tidak meratakan dialog dua baris.
+            text = "\n".join(x.rstrip() for x in text_lines).strip("\n")
             cues.append(SubtitleCue(idx, start_ms, end_ms, text))
             fallback_index += 1
         if not cues:
@@ -106,6 +108,48 @@ class SubtitleTrack:
         return "\n".join(rows)[:max_chars]
 
 
+    def clipped_for_range(
+        self,
+        start_ms: int,
+        end_ms: int,
+    ) -> list[SubtitleCue]:
+        """Klip cue ke satu part dan reset timestamp relatif ke awal part."""
+        start_ms = int(start_ms)
+        end_ms = int(end_ms)
+        if end_ms <= start_ms:
+            raise ValueError("Rentang subtitle part tidak valid.")
+
+        result: list[SubtitleCue] = []
+        for cue in self.cues:
+            # Interval diperlakukan [start, end), sehingga cue yang tepat mulai
+            # di boundary hanya masuk ke part berikutnya.
+            if cue.end_ms <= start_ms or cue.start_ms >= end_ms:
+                continue
+            clipped_start = max(cue.start_ms, start_ms)
+            clipped_end = min(cue.end_ms, end_ms)
+            if clipped_end <= clipped_start:
+                continue
+            result.append(
+                SubtitleCue(
+                    index=len(result) + 1,
+                    start_ms=clipped_start - start_ms,
+                    end_ms=clipped_end - start_ms,
+                    text=cue.text,
+                )
+            )
+        return result
+
+    def to_srt_range(self, start_ms: int, end_ms: int) -> str:
+        """Render satu rentang sebagai SRT mandiri yang dimulai dari 00:00."""
+        blocks: list[str] = []
+        for cue in self.clipped_for_range(start_ms, end_ms):
+            blocks.append(
+                f"{cue.index}\n"
+                f"{format_srt_ms(cue.start_ms)} --> {format_srt_ms(cue.end_ms)}\n"
+                f"{cue.text}"
+            )
+        return "\n\n".join(blocks) + ("\n" if blocks else "")
+
     def dialogue_boundaries(self, start_ms: int, end_ms: int) -> list[int]:
         """Return local dialogue-edge hints for semantic cut discovery.
 
@@ -143,3 +187,33 @@ def format_ms(ms: int) -> str:
     h, rem = divmod(total_s, 3600)
     m, s = divmod(rem, 60)
     return f"{h:02d}:{m:02d}:{s:02d}.{milli:03d}"
+
+
+def format_srt_ms(ms: int) -> str:
+    """Format timestamp standar SRT dengan pemisah milidetik koma."""
+    return format_ms(ms).replace(".", ",")
+
+
+def write_srt_parts(
+    source_srt: str | Path,
+    output_dir: str | Path,
+    base_name: str,
+    ranges: list[tuple[int, int]],
+) -> list[Path]:
+    """Buat satu file SRT untuk setiap rentang video.
+
+    Teks subtitle dipertahankan. Cue yang melewati boundary dibelah secara
+    lossless terhadap teksnya dan masing-masing sisi diklip ke durasi part.
+    Timestamp setiap part selalu dimulai dari 00:00:00,000.
+    """
+    track = SubtitleTrack.load(source_srt)
+    destination = Path(output_dir)
+    destination.mkdir(parents=True, exist_ok=True)
+
+    files: list[Path] = []
+    for index, (start_ms, end_ms) in enumerate(ranges, 1):
+        path = destination / f"{base_name}_Part-{index:02d}.srt"
+        payload = track.to_srt_range(int(start_ms), int(end_ms))
+        path.write_text(payload, encoding="utf-8", newline="\n")
+        files.append(path)
+    return files
