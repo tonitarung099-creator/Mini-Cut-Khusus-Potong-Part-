@@ -1298,13 +1298,21 @@ class MiniCutWindow(QMainWindow):
 
         # Subtitle dan hasil AI selalu terkait video tertentu. Jangan membawa
         # SRT/hasil Film Cut dari media sebelumnya ke video yang baru dibuka.
-        self.srt_path = None
+        # Jika ada NamaVideo.srt di folder yang sama, pakai otomatis agar ekspor
+        # MP4 + SRT per part tidak membutuhkan pemilihan ulang.
+        auto_srt = source.with_suffix(".srt")
+        self.srt_path = auto_srt.resolve() if auto_srt.is_file() else None
         if hasattr(self, "srt_edit"):
-            self.srt_edit.clear()
-            self.srt_edit.setPlaceholderText("Belum ada SRT")
+            if self.srt_path:
+                self.srt_edit.setText(str(self.srt_path))
+            else:
+                self.srt_edit.clear()
+                self.srt_edit.setPlaceholderText("Belum ada SRT")
         if hasattr(self, "film_status_label"):
             self.film_status_label.setText(
-                "Video baru dibuka. Pilih SRT yang sesuai sebelum Analisis Film."
+                "SRT otomatis ditemukan dan siap untuk Analisis Film + ekspor part."
+                if self.srt_path
+                else "Video baru dibuka. Pilih SRT yang sesuai sebelum Analisis Film."
             )
 
         self.film_cut_results = []
@@ -3174,6 +3182,20 @@ class MiniCutWindow(QMainWindow):
         if not parent:
             return {"ok": False, "cancelled": True}
         out_dir = Path(parent) / (self.model.source.stem + "_Parts")
+
+        export_srt = (
+            self.srt_path.resolve()
+            if self.srt_path and self.srt_path.is_file()
+            else None
+        )
+        if export_srt is None:
+            auto_srt = self.model.source.with_suffix(".srt")
+            if auto_srt.is_file():
+                export_srt = auto_srt.resolve()
+                self.srt_path = export_srt
+                if hasattr(self, "srt_edit"):
+                    self.srt_edit.setText(str(export_srt))
+
         self.export_worker = ExportWorker(
             ffmpeg,
             self.model.source,
@@ -3184,6 +3206,7 @@ class MiniCutWindow(QMainWindow):
             mode=mode,
             smartcut_exe=smartcut_exe,
             exact_cuts=[c.exact_time for c in self.model.cuts],
+            srt_path=export_srt,
         )
         self.export_worker.progress_changed.connect(self._export_progress)
         self.export_worker.log_line.connect(self._log)
@@ -3191,13 +3214,26 @@ class MiniCutWindow(QMainWindow):
         self.export_worker.failed.connect(self._export_failed)
         self.export_worker.cancelled.connect(self._export_cancelled)
         self.progress.setValue(0)
+        subtitle_suffix = " + SRT per part" if export_srt else ""
         self.status.setText(
-            "SmartCut frame-accurate…" if mode == "smartcut" else "Fast Copy…"
+            ("SmartCut frame-accurate" if mode == "smartcut" else "Fast Copy")
+            + subtitle_suffix
+            + "…"
         )
         self._log(
-            "Mode ekspor: SmartCut frame-accurate"
-            if mode == "smartcut" else "Mode ekspor: Fast Copy keyframe"
+            (
+                "Mode ekspor: SmartCut frame-accurate"
+                if mode == "smartcut"
+                else "Mode ekspor: Fast Copy keyframe"
+            )
+            + subtitle_suffix
         )
+        if export_srt:
+            self._log(
+                "Subtitle ekspor: "
+                + str(export_srt)
+                + " · setiap part di-reset mulai 00:00:00,000."
+            )
         self.export_worker.start()
         return {
             "ok": True,
@@ -3293,11 +3329,20 @@ class MiniCutWindow(QMainWindow):
         self.status.setText(f"Ekspor {pct}% · {text}")
 
     def _export_done(self, out_dir: str, count: int, size: int, elapsed: float):
+        had_srt = bool(self.export_worker and self.export_worker.srt_path)
         self.progress.setValue(100)
-        self.status.setText(f"Selesai · {count} part · {elapsed:.1f}s")
-        self._log(f"Ekspor selesai: {count} file, {size / 1024 / 1024:.1f} MiB → {out_dir}")
+        suffix = " + SRT" if had_srt else ""
+        self.status.setText(f"Selesai · {count} part{suffix} · {elapsed:.1f}s")
+        self._log(
+            f"Ekspor selesai: {count} part video{suffix}, "
+            f"{size / 1024 / 1024:.1f} MiB video → {out_dir}"
+        )
         self.export_worker = None
-        QMessageBox.information(self, APP_TITLE, f"Ekspor selesai.\n{count} part\n{out_dir}")
+        QMessageBox.information(
+            self,
+            APP_TITLE,
+            f"Ekspor selesai.\n{count} part video{suffix}\n{out_dir}",
+        )
 
     def _export_failed(self, message: str):
         self.status.setText("Ekspor gagal.")
