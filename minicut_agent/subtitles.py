@@ -10,11 +10,16 @@ def _time_ms(text: str) -> int:
     m = _TIME_RE.search(text.strip())
     if not m:
         raise ValueError(f"Timestamp SRT tidak valid: {text}")
+    hours = int(m.group("h"))
+    minutes = int(m.group("m"))
+    seconds = int(m.group("s"))
+    if not (0 <= minutes < 60 and 0 <= seconds < 60):
+        raise ValueError(f"Timestamp SRT di luar rentang: {text}")
     milli = int(m.group("ms").ljust(3, "0"))
     return (
-        int(m.group("h")) * 3_600_000
-        + int(m.group("m")) * 60_000
-        + int(m.group("s")) * 1_000
+        hours * 3_600_000
+        + minutes * 60_000
+        + seconds * 1_000
         + milli
     )
 
