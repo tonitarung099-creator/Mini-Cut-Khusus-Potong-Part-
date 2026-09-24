@@ -430,6 +430,17 @@ def _clear_export_parts(output_dir: Path, base_name: str, ext: str) -> None:
         path.unlink(missing_ok=True)
 
 
+def _generated_video_part_files(output_dir: Path, base_name: str) -> list[Path]:
+    """List numeric MiniCut part files across every supported video extension."""
+    files: list[Path] = []
+    for ext in sorted(SUPPORTED_VIDEO):
+        files.extend(_export_part_files(output_dir, base_name, ext))
+    return sorted(
+        set(files),
+        key=lambda path: (path.stem, path.suffix.lower()),
+    )
+
+
 def _part_ranges_from_cuts(
     cut_times_ms: list[int],
     duration_ms: int,
@@ -488,7 +499,7 @@ def _commit_staged_export_parts(
     # Selalu perlakukan SRT hasil MiniCut lama sebagai bagian dari transaksi.
     # Jika ekspor terbaru tidak memakai SRT, companion lama harus dihapus agar
     # tidak terlihat seolah masih sinkron dengan video baru.
-    previous = _export_part_files(output_dir, base_name, ext)
+    previous = _generated_video_part_files(output_dir, base_name)
     previous += _export_part_files(output_dir, base_name, ".srt")
 
     staged_all = list(staged_video) + list(staged_srt)
@@ -789,8 +800,23 @@ def export_segments_smartcut(
                 )
 
         if srt_path is not None:
+            def subtitle_boundary_ms(mark: tuple[int, str | None]) -> int:
+                ms, exact = mark
+                if exact in (None, "start", "end"):
+                    return int(ms)
+                try:
+                    # SRT hanya punya resolusi milidetik. Gunakan milidetik
+                    # terdekat dari PTS exact agar boundary subtitle mengikuti
+                    # SmartCut sedekat mungkin, tanpa float rounding.
+                    return int(round(Fraction(str(exact)) * 1000))
+                except Exception:
+                    return int(ms)
+
             subtitle_ranges = [
-                (int(start[0]), int(end[0]))
+                (
+                    subtitle_boundary_ms(start),
+                    subtitle_boundary_ms(end),
+                )
                 for start, end in ranges
             ]
             subtitle_files = write_srt_parts(
