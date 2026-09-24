@@ -131,6 +131,19 @@ class FastExportZeroCutTests(unittest.TestCase):
                 )
 
 
+class KeyframeSafetyTests(unittest.TestCase):
+    def test_non_keyframe_legacy_cut_is_detected(self):
+        model = ProjectModel()
+        model.duration_ms = 10_000
+        model.keyframes = [0, 2_000, 4_000, 6_000, 8_000]
+        model.cuts = [CutPoint(3_000, 3_000, None)]
+
+        self.assertTrue(model.has_non_keyframe_cuts())
+
+        model.cuts = [CutPoint(4_000, 4_000, None)]
+        self.assertFalse(model.has_non_keyframe_cuts())
+
+
 class FastExportCutNormalizationTests(unittest.TestCase):
     def test_duplicate_and_out_of_range_fast_cuts_are_normalized(self):
         captured = {}
