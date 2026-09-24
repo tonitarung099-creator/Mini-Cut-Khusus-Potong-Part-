@@ -2560,6 +2560,13 @@ class MiniCutWindow(QMainWindow):
 
     # ---------- AI Film Cut / Gemini ----------
     def _choose_srt(self) -> bool:
+        if self.film_cut_worker and self.film_cut_worker.isRunning():
+            QMessageBox.information(
+                self,
+                APP_TITLE,
+                "Tunggu AI Film Cut selesai atau batalkan dulu sebelum mengganti SRT.",
+            )
+            return False
         path, _ = QFileDialog.getOpenFileName(self, "Pilih subtitle SRT", "", "Subtitle (*.srt)")
         if not path:
             return False
@@ -2597,6 +2604,13 @@ class MiniCutWindow(QMainWindow):
         return True
 
     def _clear_srt(self):
+        if self.film_cut_worker and self.film_cut_worker.isRunning():
+            QMessageBox.information(
+                self,
+                APP_TITLE,
+                "Tunggu AI Film Cut selesai atau batalkan dulu sebelum melepas SRT.",
+            )
+            return
         changed = self.srt_path is not None or not self._srt_user_disabled
         self.srt_path = None
         self._srt_project_reference = None
@@ -2692,6 +2706,10 @@ class MiniCutWindow(QMainWindow):
 
         self.film_analyze_btn.setEnabled(False)
         self.film_cancel_btn.setEnabled(True)
+        if hasattr(self, "srt_btn"):
+            self.srt_btn.setEnabled(False)
+        if hasattr(self, "srt_clear_btn"):
+            self.srt_clear_btn.setEnabled(False)
         self.progress.setRange(0, 100)
 
         config = dict(self._film_run_config or {})
@@ -2967,6 +2985,10 @@ class MiniCutWindow(QMainWindow):
         self.film_cut_worker = None
         self.film_analyze_btn.setEnabled(True)
         self.film_cancel_btn.setEnabled(False)
+        if hasattr(self, "srt_btn"):
+            self.srt_btn.setEnabled(True)
+        if hasattr(self, "srt_clear_btn"):
+            self.srt_clear_btn.setEnabled(True)
         self.progress.setValue(100)
         self.film_cut_results = sorted(
             [dict(x) for x in results], key=lambda x: int(x.get("target_ms") or 0)
@@ -3065,6 +3087,10 @@ class MiniCutWindow(QMainWindow):
 
         self.film_analyze_btn.setEnabled(True)
         self.film_cancel_btn.setEnabled(False)
+        if hasattr(self, "srt_btn"):
+            self.srt_btn.setEnabled(True)
+        if hasattr(self, "srt_clear_btn"):
+            self.srt_clear_btn.setEnabled(True)
         self.status.setText("AI Film Cut gagal.")
         self.film_status_label.setText(
             "Analisis berhenti. Hasil yang sudah selesai tetap tersimpan di cache."
@@ -3083,6 +3109,10 @@ class MiniCutWindow(QMainWindow):
         self.film_cut_worker = None
         self.film_analyze_btn.setEnabled(True)
         self.film_cancel_btn.setEnabled(False)
+        if hasattr(self, "srt_btn"):
+            self.srt_btn.setEnabled(True)
+        if hasattr(self, "srt_clear_btn"):
+            self.srt_clear_btn.setEnabled(True)
         self.status.setText("AI Film Cut dibatalkan.")
         self.film_status_label.setText("Dibatalkan. Hasil sebelumnya tetap tersimpan di cache.")
         self._film_attempted_key_ids.clear()
