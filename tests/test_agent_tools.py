@@ -609,10 +609,12 @@ class GeminiExactCutToolTests(unittest.TestCase):
 class _BridgeDrainHost:
     _drain_bridge = MiniCutWindow._drain_bridge
     _snapshot = MiniCutWindow._snapshot
+    _state_with_subtitle = MiniCutWindow._state_with_subtitle
 
     def __init__(self):
         self.model = ProjectModel()
         self.model.duration_ms = 120_000
+        self.srt_path = None
         self.bridge_queue = queue.Queue()
         self.bridge_state = {}
         self.undo_stack = []
