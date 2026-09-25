@@ -52,7 +52,7 @@ def run_tool(name: str, **args):
 
 @mcp.tool()
 def get_state() -> dict:
-    """Baca status proyek MiniCut, playhead, cut, dan jumlah part."""
+    """Baca status proyek MiniCut, termasuk status SRT wajib untuk ekspor."""
     return request_json("/state")
 
 @mcp.tool()
@@ -67,7 +67,7 @@ def open_project() -> dict:
 
 @mcp.tool()
 def choose_subtitle() -> dict:
-    """Pilih subtitle SRT untuk AI Film Cut."""
+    """Pilih subtitle SRT untuk AI Film Cut dan ekspor wajib video + SRT."""
     return run_tool("choose_subtitle")
 
 @mcp.tool()
@@ -152,7 +152,7 @@ def save_project() -> dict:
 
 @mcp.tool()
 def export_all() -> dict:
-    """Mulai ekspor seluruh part."""
+    """Mulai ekspor seluruh part video + SRT. Ekspor tanpa SRT ditolak."""
     return run_tool("export_all")
 
 @mcp.tool()
