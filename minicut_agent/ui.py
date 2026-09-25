@@ -3227,8 +3227,26 @@ class MiniCutWindow(QMainWindow):
             if self.srt_path is not None and self.srt_path.is_file()
             else None
         )
+        export_mode = "smartcut"
+        export_mode_widget = getattr(self, "export_mode", None)
+        if export_mode_widget is not None:
+            try:
+                export_mode = str(export_mode_widget.currentData() or "smartcut")
+            except Exception:
+                export_mode = "smartcut"
+        if export_mode not in {"smartcut", "fast"}:
+            export_mode = "smartcut"
+
+        state["export"] = {
+            "mode": export_mode,
+            "smartcut_requires_srt": True,
+            "fast_copy_requires_srt": False,
+            "smartcut_outputs_srt": True,
+            "fast_copy_outputs_srt": False,
+        }
         state["subtitle"] = {
             "required_for_export": False,
+            "required_for_current_export": export_mode == "smartcut",
             "required_for_smartcut_export": True,
             "required_for_fast_export": False,
             "required_for_film_cut": True,
