@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from minicut_agent.core import (
     CutPoint, ProjectModel, export_segments, export_segments_smartcut,
-    load_project_file, resolve_project_subtitle
+    load_project_file, probe_media, resolve_project_subtitle
 )
 
 
@@ -33,6 +33,30 @@ class ProjectPortabilityTests(unittest.TestCase):
 
             _data, source = load_project_file(project)
             self.assertEqual(source, relative_video.resolve())
+
+
+class MediaDurationRoundingTests(unittest.TestCase):
+    def test_probe_media_does_not_floor_fractional_last_millisecond(self):
+        payload = {
+            "format": {"duration": "10.9995"},
+            "streams": [{
+                "codec_type": "video",
+                "codec_name": "h264",
+                "width": 1920,
+                "height": 1080,
+                "avg_frame_rate": "24/1",
+            }],
+        }
+        fake = type("Result", (), {
+            "returncode": 0,
+            "stdout": json.dumps(payload),
+            "stderr": "",
+        })()
+
+        with patch("minicut_agent.core.run_text", return_value=fake):
+            media = probe_media(Path("movie.mp4"), "ffprobe")
+
+        self.assertEqual(media["duration_ms"], 11_000)
 
 
 class FastExportNamingTests(unittest.TestCase):
