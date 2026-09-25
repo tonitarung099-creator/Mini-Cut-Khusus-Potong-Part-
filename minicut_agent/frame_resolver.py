@@ -143,7 +143,9 @@ def probe_frame_points(
         if exact_time in seen_exact:
             continue
 
-        ms = int(round(float(relative) * 1000))
+        # Jangan lewat float: PTS exact dan boundary SRT harus membulatkan
+        # dari Fraction yang sama agar tidak berbeda 1 ms di titik tertentu.
+        ms = int(round(relative * 1000))
         if start_ms <= ms <= end_ms:
             # Seek one microsecond before this PTS for the JPEG shown to Gemini.
             # The exact rational PTS itself is still preserved for SmartCut.
