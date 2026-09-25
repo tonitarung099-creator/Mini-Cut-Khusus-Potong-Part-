@@ -7,6 +7,7 @@ from minicut_agent.agent import AgentPlanner, MUTATING_TOOLS, ToolRegistry
 from minicut_agent.bridge import BridgeCall
 from minicut_agent.core import CutPoint, ProjectModel
 from minicut_agent.ui import MiniCutWindow
+from minicut_agent.workers import ExportWorker
 
 
 class ToolManifestCoverageTests(unittest.TestCase):
@@ -532,6 +533,58 @@ class MandatorySubtitleExportTests(unittest.TestCase):
         self.assertTrue(state["smartcut_outputs_srt"])
         self.assertFalse(state["fast_copy_outputs_srt"])
         self.assertFalse(state["loaded"])
+
+
+
+class ExportWorkerModePolicyTests(unittest.TestCase):
+    def test_fast_copy_discards_srt_reference_for_truthful_status(self):
+        from pathlib import Path
+
+        worker = ExportWorker(
+            "ffmpeg",
+            Path("movie.mp4"),
+            Path("parts"),
+            "movie",
+            [1_000],
+            2_000,
+            mode="fast",
+            srt_path=Path("movie.srt"),
+        )
+
+        self.assertEqual(worker.mode, "fast")
+        self.assertIsNone(worker.srt_path)
+
+    def test_smartcut_keeps_srt_reference(self):
+        from pathlib import Path
+
+        worker = ExportWorker(
+            "ffmpeg",
+            Path("movie.mp4"),
+            Path("parts"),
+            "movie",
+            [1_000],
+            2_000,
+            mode="smartcut",
+            smartcut_exe="smartcut",
+            srt_path=Path("movie.srt"),
+        )
+
+        self.assertEqual(worker.mode, "smartcut")
+        self.assertEqual(worker.srt_path, Path("movie.srt").resolve())
+
+    def test_invalid_export_mode_is_rejected(self):
+        from pathlib import Path
+
+        with self.assertRaisesRegex(ValueError, "smartcut.*fast"):
+            ExportWorker(
+                "ffmpeg",
+                Path("movie.mp4"),
+                Path("parts"),
+                "movie",
+                [],
+                2_000,
+                mode="unknown",
+            )
 
 
 class SubtitleProjectDirtyTests(unittest.TestCase):
