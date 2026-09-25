@@ -374,6 +374,16 @@ def write_srt_parts(
         ranges,
         expected_duration_ms=expected_duration_ms,
     )
+    if expected_duration_ms is not None:
+        expected = int(expected_duration_ms)
+        if not any(
+            cue.end_ms > 0 and cue.start_ms < expected
+            for cue in track.cues
+        ):
+            raise ValueError(
+                "SRT tidak memiliki cue yang berada di dalam durasi video. "
+                "Periksa apakah file SRT benar untuk video ini."
+            )
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
 
