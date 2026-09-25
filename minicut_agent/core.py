@@ -19,7 +19,15 @@ from .subtitles import write_srt_parts
 SUPPORTED_VIDEO = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v", ".ts", ".mts"}
 
 
-def fraction_seconds_to_ms(value: Fraction | str | int) -> int:
+def round_fraction_half_up(value: Fraction | str | int | float) -> int:
+    """Bulatkan nilai rasional ke integer terdekat; nilai x.5 menjauh dari nol."""
+    fraction = value if isinstance(value, Fraction) else Fraction(str(value))
+    if fraction >= 0:
+        return int(fraction + Fraction(1, 2))
+    return -int((-fraction) + Fraction(1, 2))
+
+
+def fraction_seconds_to_ms(value: Fraction | str | int | float) -> int:
     """Ubah detik rasional ke ms dengan round-half-up yang deterministik.
 
     Python round() memakai bankers rounding pada tepat x.5. Untuk boundary
@@ -27,10 +35,7 @@ def fraction_seconds_to_ms(value: Fraction | str | int) -> int:
     508.5 -> 509.
     """
     fraction = value if isinstance(value, Fraction) else Fraction(str(value))
-    scaled = fraction * 1000
-    if scaled >= 0:
-        return int(scaled + Fraction(1, 2))
-    return -int((-scaled) + Fraction(1, 2))
+    return round_fraction_half_up(fraction * 1000)
 
 
 def bundle_dir() -> Path:
@@ -60,11 +65,16 @@ def short_clock(ms: int) -> str:
     return clock_text(ms).split(".")[0]
 
 def parse_time_ms(value: Any) -> int:
-    if isinstance(value, (int, float)):
-        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        # Numeric tool values are already milliseconds.
+        return round_fraction_half_up(Fraction(str(value)))
+
     text = str(value).strip().lower().replace(",", ".")
     if re.fullmatch(r"[-+]?\d+(?:\.\d+)?\s*ms", text):
-        return int(float(text[:-2].strip()))
+        raw_ms = text[:-2].strip()
+        return round_fraction_half_up(Fraction(raw_ms))
 
     # Gemini/tools may send a natural-language time instead of an integer even
     # though time_ms is preferred. Accept arbitrary hour/minute/second values,
@@ -87,22 +97,27 @@ def parse_time_ms(value: Any) -> int:
         natural.group(name) is not None
         for name in ("hours", "minutes", "seconds")
     ):
-        hours = float(natural.group("hours") or 0)
-        minutes = float(natural.group("minutes") or 0)
-        seconds = float(natural.group("seconds") or 0)
-        return round((hours * 3600 + minutes * 60 + seconds) * 1000)
+        hours = Fraction(natural.group("hours") or "0")
+        minutes = Fraction(natural.group("minutes") or "0")
+        seconds = Fraction(natural.group("seconds") or "0")
+        return fraction_seconds_to_ms(
+            hours * 3600 + minutes * 60 + seconds
+        )
 
     parts = text.split(":")
     try:
         if len(parts) == 3:
-            h, m, s = int(parts[0]), int(parts[1]), float(parts[2])
-            return int((h * 3600 + m * 60 + s) * 1000)
+            h = Fraction(parts[0])
+            m = Fraction(parts[1])
+            sec = Fraction(parts[2])
+            return fraction_seconds_to_ms(h * 3600 + m * 60 + sec)
         if len(parts) == 2:
-            m, s = int(parts[0]), float(parts[1])
-            return int((m * 60 + s) * 1000)
+            m = Fraction(parts[0])
+            sec = Fraction(parts[1])
+            return fraction_seconds_to_ms(m * 60 + sec)
         # Keep legacy behavior: a bare numeric string means seconds.
-        return int(float(text) * 1000)
-    except ValueError as exc:
+        return fraction_seconds_to_ms(Fraction(text))
+    except (ValueError, ZeroDivisionError) as exc:
         raise ValueError(f"Format waktu tidak dikenali: {value}") from exc
 
 def run_text(cmd: list[str]) -> subprocess.CompletedProcess:
