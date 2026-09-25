@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import urllib.error
 import urllib.request
 from typing import Any
@@ -166,4 +167,9 @@ def undo() -> dict:
     return run_tool("undo")
 
 if __name__ == "__main__":
-    mcp.run()
+    if sys.argv[1:] == ["--self-test"]:
+        # Importing FastMCP and registering all tools verifies the packaged
+        # runtime without blocking on the stdio server or needing the GUI.
+        print("mcp-self-test-ok")
+    else:
+        mcp.run()

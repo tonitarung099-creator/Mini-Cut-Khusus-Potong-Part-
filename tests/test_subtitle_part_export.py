@@ -185,6 +185,40 @@ class SubtitlePartExportTests(unittest.TestCase):
             self.assertEqual(track.cues[0].text, "café – bagus")
             self.assertNotIn("�", track.cues[0].text)
 
+    def test_malformed_timestamp_among_valid_cues_never_silently_loses_dialogue(self):
+        malformed = [
+            "00:00:03,1234 --> 00:00:04,000",
+            "00:00:03,000 --> 00:00:04,1234",
+            "-00:00:03,000 --> 00:00:04,000",
+            "abc00:00:03,000 --> 00:00:04,000",
+        ]
+        for timestamp in malformed:
+            for separator in ("\n", "\n\n"):
+                with self.subTest(timestamp=timestamp, separator=separator):
+                    with tempfile.TemporaryDirectory() as td:
+                        root = Path(td)
+                        path = root / "mixed.srt"
+                        path.write_text(separator.join([
+                            "1\n00:00:01,000 --> 00:00:02,000\nDialog pertama",
+                            f"2\n{timestamp}\nDialog tidak boleh hilang",
+                            "3\n00:00:05,000 --> 00:00:06,000\nDialog terakhir",
+                        ]), encoding="utf-8")
+                        with self.assertRaisesRegex(ValueError, "Timestamp"):
+                            write_srt_parts(path, root / "out", "Film", [(0, 10_000)])
+                        self.assertFalse((root / "out").exists())
+
+    def test_parser_preserves_dialogue_arrows_and_timestamp_position_settings(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "arrows.srt"
+            path.write_text(
+                "1\n00:00:01,000 --> 00:00:02,000 X1:10 X2:20 Y1:30 Y2:40\n"
+                "Rumah --> sekolah\n",
+                encoding="utf-8",
+            )
+            track = SubtitleTrack.load(path)
+            self.assertEqual(track.cues[0].text, "Rumah --> sekolah")
+            self.assertEqual(track.cues[0].end_ms, 2_000)
+
     def test_parser_reads_utf16_bom(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "utf16.srt"

@@ -94,9 +94,17 @@ jobs:
       - name: Build MCP companion
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --console --name "MiniCut MCP" mcp_server.py
+          pyinstaller --noconfirm --clean --console --contents-directory _mcp_internal --name "MiniCut MCP" mcp_server.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item "dist/MiniCut MCP/MiniCut MCP.exe" "dist/MiniCut Studio Agent/MiniCut MCP.exe"
+          Copy-Item "dist/MiniCut MCP/_mcp_internal" "dist/MiniCut Studio Agent/" -Recurse -Force
           Copy-Item README.md "dist/MiniCut Studio Agent/README_AGENT.md"
+
+      - name: Smoke test packaged MCP companion
+        shell: pwsh
+        run: |
+          & "dist/MiniCut Studio Agent/MiniCut MCP.exe" --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build SmartCut companion
         shell: pwsh

@@ -31,7 +31,14 @@ def _is_time_line(text: str) -> bool:
     if "-->" not in text:
         return False
     left, right = text.split("-->", 1)
-    return bool(_TIME_RE.search(left.strip()) and _TIME_RE.search(right.strip()))
+    # Recognize a timing line even when one endpoint is malformed. Returning
+    # False here would silently discard that cue (or append it to the previous
+    # dialogue in SRT files without blank separators).
+    if not any(re.match(r"^[+-]?\d+:", side.strip()) for side in (left, right)):
+        return False
+    _time_ms(left)
+    _time_ms(right)
+    return True
 
 @dataclass(frozen=True)
 class SubtitleCue:

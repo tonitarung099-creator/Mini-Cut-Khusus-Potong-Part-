@@ -22,9 +22,14 @@ copy /Y "ffmpeg-runtime\ffprobe.exe" "dist\MiniCut Studio Agent\ffprobe.exe"
 copy /Y "THIRD_PARTY_FFMPEG.txt" "dist\MiniCut Studio Agent\THIRD_PARTY_FFMPEG.txt"
 if exist "ffmpeg-runtime\FFMPEG_BUILD_LICENSE.txt" copy /Y "ffmpeg-runtime\FFMPEG_BUILD_LICENSE.txt" "dist\MiniCut Studio Agent\FFMPEG_BUILD_LICENSE.txt"
 
-py -3.11 -m PyInstaller --noconfirm --clean --console --name "MiniCut MCP" mcp_server.py
+py -3.11 -m PyInstaller --noconfirm --clean --console --contents-directory _mcp_internal --name "MiniCut MCP" mcp_server.py
 if errorlevel 1 exit /b %errorlevel%
 copy /Y "dist\MiniCut MCP\MiniCut MCP.exe" "dist\MiniCut Studio Agent\MiniCut MCP.exe"
+if errorlevel 1 exit /b %errorlevel%
+xcopy /E /I /Y "dist\MiniCut MCP\_mcp_internal" "dist\MiniCut Studio Agent\_mcp_internal"
+if errorlevel 1 exit /b %errorlevel%
+"dist\MiniCut Studio Agent\MiniCut MCP.exe" --self-test
+if errorlevel 1 exit /b %errorlevel%
 
 py -3.11 -m PyInstaller --noconfirm --clean --onefile --console --name "MiniCut SmartCut" --collect-all smartcut --collect-all av smartcut_runner.py
 if errorlevel 1 exit /b %errorlevel%
