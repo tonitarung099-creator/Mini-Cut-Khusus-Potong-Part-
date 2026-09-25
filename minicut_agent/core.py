@@ -177,8 +177,8 @@ def probe_keyframes(source: Path, ffprobe: str) -> list[int]:
         if not raw:
             continue
         try:
-            points.append(int(float(raw) * 1000))
-        except ValueError:
+            points.append(fraction_seconds_to_ms(Fraction(raw)))
+        except (ValueError, ZeroDivisionError):
             pass
     points = sorted(set(points))
     if not points:
