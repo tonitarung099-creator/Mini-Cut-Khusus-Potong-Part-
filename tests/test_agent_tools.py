@@ -525,6 +525,7 @@ class MandatorySubtitleExportTests(unittest.TestCase):
             state = host.tool_get_state()["state"]["subtitle"]
 
         self.assertFalse(state["required_for_export"])
+        self.assertTrue(state["required_for_current_export"])
         self.assertTrue(state["required_for_smartcut_export"])
         self.assertFalse(state["required_for_fast_export"])
         self.assertTrue(state["required_for_film_cut"])
