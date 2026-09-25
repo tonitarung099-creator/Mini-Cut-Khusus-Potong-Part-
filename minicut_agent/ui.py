@@ -3465,15 +3465,22 @@ class MiniCutWindow(QMainWindow):
             for c in self.model.cuts
         )
         has_non_keyframe_cuts = self.model.has_non_keyframe_cuts()
-        if mode == "fast" and (has_exact_cuts or has_non_keyframe_cuts):
+        # SRT wajib mengikuti boundary video yang benar-benar diekspor. FFmpeg
+        # stream-copy/segmenter dapat bergeser ke keyframe/DTS yang tersedia,
+        # termasuk pada beberapa file yang cut-nya tampak berada di keyframe.
+        # Karena itu setiap ekspor yang benar-benar membagi video menjadi part
+        # selalu memakai SmartCut. Fast Copy hanya aman untuk timeline tanpa cut.
+        if mode == "fast" and self.model.cuts:
             smart_index = self.export_mode.findData("smartcut")
             if smart_index >= 0:
                 self.export_mode.setCurrentIndex(smart_index)
             mode = "smartcut"
             if has_exact_cuts:
                 reason = "timeline memiliki cut PTS exact"
-            else:
+            elif has_non_keyframe_cuts:
                 reason = "timeline memiliki cut yang bukan keyframe"
+            else:
+                reason = "ekspor berpart + SRT harus memakai boundary frame yang sama"
             self._log(
                 "Fast Copy dilewati: "
                 + reason
@@ -3484,8 +3491,8 @@ class MiniCutWindow(QMainWindow):
             smartcut_exe = find_tool("MiniCut SmartCut") or find_tool("smartcut")
             if not smartcut_exe:
                 raise RuntimeError(
-                    "MiniCut SmartCut tidak ditemukan. Gunakan paket aplikasi lengkap "
-                    "atau pilih Fast Copy."
+                    "MiniCut SmartCut tidak ditemukan. Gunakan paket aplikasi lengkap. "
+                    "Ekspor berpart + SRT tidak dialihkan ke Fast Copy karena dapat menggeser sinkron subtitle."
                 )
         export_srt: Path | None = None
 
