@@ -41,6 +41,43 @@ class SubtitlePartExportTests(unittest.TestCase):
             )
             self.assertNotIn("00:00:05,000 -->", part2)
 
+    def test_cue_ending_exactly_at_boundary_stays_only_in_previous_part(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "boundary-end.srt"
+            path.write_text(
+                "1\n"
+                "00:00:04,000 --> 00:00:05,000\n"
+                "Selesai sebelum cut\n",
+                encoding="utf-8",
+            )
+            track = SubtitleTrack.load(path)
+
+            part1 = track.to_srt_range(0, 5_000)
+            part2 = track.to_srt_range(5_000, 10_000)
+
+            self.assertIn("Selesai sebelum cut", part1)
+            self.assertNotIn("Selesai sebelum cut", part2)
+
+    def test_cue_starting_exactly_at_boundary_stays_only_in_next_part(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "boundary-start.srt"
+            path.write_text(
+                "1\n"
+                "00:00:05,000 --> 00:00:06,000\n"
+                "Mulai sesudah cut\n",
+                encoding="utf-8",
+            )
+            track = SubtitleTrack.load(path)
+
+            part1 = track.to_srt_range(0, 5_000)
+            part2 = track.to_srt_range(5_000, 10_000)
+
+            self.assertNotIn("Mulai sesudah cut", part1)
+            self.assertIn(
+                "00:00:00,000 --> 00:00:01,000\nMulai sesudah cut",
+                part2,
+            )
+
     def test_each_part_is_renumbered_and_multiline_text_is_preserved(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
