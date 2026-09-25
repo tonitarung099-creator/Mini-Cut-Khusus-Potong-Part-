@@ -100,7 +100,7 @@ class MiniCutWindow(QMainWindow):
         self._film_usage_seen_prompt_tokens = 0
 
         self.bridge_queue: "queue.Queue[BridgeCall]" = queue.Queue()
-        self.bridge_state: dict = self.model.state()
+        self.bridge_state: dict = self._state_with_subtitle()
         self.bridge = LocalBridge(
             self.bridge_queue,
             state_provider=lambda: dict(self.bridge_state),
@@ -1541,7 +1541,7 @@ class MiniCutWindow(QMainWindow):
         self.position_label.setText(
             f"{clock_text(ms)} / {clock_text(self.model.duration_ms)}"
         )
-        self.bridge_state = self.model.state()
+        self.bridge_state = self._state_with_subtitle()
 
     def _duration_changed(self, ms: int):
         if self.model.source and self.model.duration_ms <= 0 and ms > 0:
@@ -1746,7 +1746,7 @@ class MiniCutWindow(QMainWindow):
         self.plan_preview.setPlainText("Menghubungi model…")
         self.agent_worker = AgentWorker(
             self.planner, self.endpoint_edit.text(), self.model_edit.text(),
-            self.api_key_edit.text(), text, self.model.state()
+            self.api_key_edit.text(), text, self._state_with_subtitle()
         )
         self.agent_worker.ready.connect(self._remote_plan_ready)
         self.agent_worker.failed.connect(self._remote_plan_failed)
@@ -3730,7 +3730,7 @@ class MiniCutWindow(QMainWindow):
 
     # ---------- bridge ----------
     def _drain_bridge(self):
-        self.bridge_state = self.model.state()
+        self.bridge_state = self._state_with_subtitle()
         for _ in range(20):
             try:
                 call = self.bridge_queue.get_nowait()
@@ -3755,7 +3755,7 @@ class MiniCutWindow(QMainWindow):
 
     # ---------- refresh/log ----------
     def _refresh(self):
-        state = self.model.state()
+        state = self._state_with_subtitle()
         self.bridge_state = state
         self.timeline.set_marks([c.actual_ms for c in self.model.cuts])
         self.position_label.setText(
