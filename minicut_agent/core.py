@@ -18,6 +18,21 @@ from .subtitles import write_srt_parts
 
 SUPPORTED_VIDEO = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v", ".ts", ".mts"}
 
+
+def fraction_seconds_to_ms(value: Fraction | str | int) -> int:
+    """Ubah detik rasional ke ms dengan round-half-up yang deterministik.
+
+    Python round() memakai bankers rounding pada tepat x.5. Untuk boundary
+    video/SRT kita butuh satu aturan yang konsisten: 507.5 -> 508 dan
+    508.5 -> 509.
+    """
+    fraction = value if isinstance(value, Fraction) else Fraction(str(value))
+    scaled = fraction * 1000
+    if scaled >= 0:
+        return int(scaled + Fraction(1, 2))
+    return -int((-scaled) + Fraction(1, 2))
+
+
 def bundle_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
@@ -140,7 +155,7 @@ def probe_media(source: Path, ffprobe: str) -> dict[str, Any]:
         # Bulatkan durasi dengan aritmetika rasional yang sama seperti
         # PTS frame/SRT. Jangan floor via int(float), karena cue di <1 ms
         # terakhir bisa terpotong dari part final.
-        "duration_ms": max(0, int(round(duration * 1000))),
+        "duration_ms": max(0, fraction_seconds_to_ms(duration)),
         "fps": fps,
         "width": width,
         "height": height,
@@ -797,13 +812,14 @@ def export_segments_smartcut(
                 raise RuntimeError(
                     f"PTS exact cut tidak valid pada {clock_text(ms)}: {exact}"
                 ) from exc
-            # Bandingkan PTS exact tanpa float agar validasi timeline dan
-            # boundary SRT tidak bisa berbeda karena error representasi biner.
-            delta_ms = abs(exact_fraction * 1000 - ms)
-            if delta_ms > Fraction(2, 1):
+            # Exact PTS dan milidetik timeline harus membulat ke boundary
+            # yang sama. Jangan toleransi selisih 1-2 ms: lebih aman menolak
+            # ekspor daripada menghasilkan video dan SRT dengan batas berbeda.
+            exact_ms = fraction_seconds_to_ms(exact_fraction)
+            if exact_ms != ms:
                 raise RuntimeError(
                     "PTS exact cut tidak cocok dengan timestamp timeline "
-                    f"({clock_text(ms)} vs {exact})."
+                    f"({clock_text(ms)} vs {exact} -> {clock_text(exact_ms)})."
                 )
             # Normalize rational text but never round it to milliseconds.
             exact = str(exact_fraction)
@@ -915,7 +931,7 @@ def export_segments_smartcut(
                     # SRT hanya punya resolusi milidetik. Gunakan milidetik
                     # terdekat dari PTS exact agar boundary subtitle mengikuti
                     # SmartCut sedekat mungkin, tanpa float rounding.
-                    return int(round(Fraction(str(exact)) * 1000))
+                    return fraction_seconds_to_ms(Fraction(str(exact)))
                 except Exception:
                     return int(ms)
 
