@@ -1368,7 +1368,7 @@ class MiniCutWindow(QMainWindow):
                     self._srt_project_reference = self.srt_path
                     subtitle_status = (
                         "SRT dari proyek dipulihkan dan siap untuk "
-                        "Analisis Film + ekspor part."
+                        "Analisis Film + ekspor SmartCut."
                     )
             else:
                 self._srt_auto_disabled = True
@@ -2610,7 +2610,8 @@ class MiniCutWindow(QMainWindow):
             if hasattr(self, "film_preview_btn"):
                 self.film_preview_btn.setEnabled(False)
         self.film_status_label.setText(
-            "SRT siap. MiniCut akan menggunakannya untuk verifikasi dialog dan ekspor part."
+            "SRT siap. MiniCut akan menggunakannya untuk verifikasi dialog "
+            "dan ekspor SmartCut."
             + (" Hasil AI lama dibersihkan." if changed else "")
         )
         return True
