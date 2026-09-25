@@ -81,6 +81,27 @@ class MediaDurationRoundingTests(unittest.TestCase):
         self.assertEqual(media["duration_ms"], 10_999)
 
 
+class SmartCutRunnerSubtitlePolicyTests(unittest.TestCase):
+    def test_runner_clears_embedded_subtitle_tracks_after_media_load(self):
+        import smartcut_runner
+
+        original = smartcut_runner._original_media_container_init
+
+        def fake_init(instance, *_args, **_kwargs):
+            instance.subtitle_tracks = [["embedded subtitle packet"]]
+            instance.keep_marker = "media-loaded"
+
+        holder = object.__new__(smartcut_runner.MediaContainer)
+        try:
+            smartcut_runner._original_media_container_init = fake_init
+            smartcut_runner._init_without_embedded_subtitles(holder, "movie.mkv")
+        finally:
+            smartcut_runner._original_media_container_init = original
+
+        self.assertEqual(holder.subtitle_tracks, [])
+        self.assertEqual(holder.keep_marker, "media-loaded")
+
+
 class FastExportNamingTests(unittest.TestCase):
     def test_fast_export_starts_part_number_at_one(self):
         class DummyProc:
