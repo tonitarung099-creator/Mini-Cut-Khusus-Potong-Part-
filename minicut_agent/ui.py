@@ -3246,7 +3246,9 @@ class MiniCutWindow(QMainWindow):
             "fast_copy_outputs_srt": False,
         }
         state["subtitle"] = {
-            "required_for_export": False,
+            # Backward-compatible field: artinya kebutuhan SRT untuk mode
+            # ekspor yang sedang aktif, bukan aturan global semua mode.
+            "required_for_export": export_mode == "smartcut",
             "required_for_current_export": export_mode == "smartcut",
             "required_for_smartcut_export": True,
             "required_for_fast_export": False,
