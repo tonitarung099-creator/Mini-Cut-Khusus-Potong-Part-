@@ -733,6 +733,7 @@ def export_segments(
                 staging_dir,
                 base_name,
                 ranges,
+                expected_duration_ms=duration_ms,
             )
             if len(subtitle_files) != expected:
                 raise RuntimeError(
@@ -927,6 +928,7 @@ def export_segments_smartcut(
                 staging_dir,
                 base_name,
                 subtitle_ranges,
+                expected_duration_ms=duration_ms,
             )
             if len(subtitle_files) != len(ranges):
                 raise RuntimeError(
