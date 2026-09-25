@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from fractions import Fraction
 
-from .core import clock_text
+from .core import clock_text, fraction_seconds_to_ms
 
 
 @dataclass(frozen=True)
@@ -44,8 +45,8 @@ def looks_like_manual_cut(text: str) -> bool:
     return any(word in low for word in _CUT_WORDS)
 
 
-def _number(text: str | None) -> float:
-    return float(str(text or "0").replace(",", "."))
+def _number(text: str | None) -> Fraction:
+    return Fraction(str(text or "0").replace(",", "."))
 
 
 def extract_manual_timestamps(text: str) -> list[ManualTimestamp]:
@@ -125,7 +126,9 @@ def extract_manual_timestamps(text: str) -> list[ManualTimestamp]:
         hours = _number(m.group(1))
         minutes = _number(m.group(2))
         seconds = _number(m.group(3))
-        ms = round((hours * 3600 + minutes * 60 + seconds) * 1000)
+        ms = fraction_seconds_to_ms(
+            hours * 3600 + minutes * 60 + seconds
+        )
         add_match(m.start(), m.end(), m.group(0), ms)
 
     # Minutes with an optional seconds component. Accept compact aliases too,
@@ -143,7 +146,7 @@ def extract_manual_timestamps(text: str) -> list[ManualTimestamp]:
             continue
         minute = _number(m.group(1))
         sec = _number(m.group(2))
-        ms = round((minute * 60 + sec) * 1000)
+        ms = fraction_seconds_to_ms(minute * 60 + sec)
         add_match(m.start(), m.end(), m.group(0), ms)
 
     # Seconds, including common abbreviations/typos such as dtk/dtik/sec/s.
@@ -155,7 +158,7 @@ def extract_manual_timestamps(text: str) -> list[ManualTimestamp]:
     ):
         if overlaps(m.start(), m.end()):
             continue
-        ms = round(_number(m.group(1)) * 1000)
+        ms = fraction_seconds_to_ms(_number(m.group(1)))
         add_match(m.start(), m.end(), m.group(0), ms)
 
     found.sort(key=lambda item: item[0])
