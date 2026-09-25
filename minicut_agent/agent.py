@@ -152,7 +152,9 @@ class AgentPlanner:
             "Keluarkan HANYA satu objek JSON valid tanpa markdown berbentuk "
             '{"version":1,"summary":"...","steps":[{"tool":"...","args":{...}}]}. '
             "Gunakan hanya tool yang tersedia. Jangan mengarang tool. "
-            "Jangan menyimpan atau mengekspor kecuali pengguna memintanya eksplisit. "+"Setiap ekspor WAJIB menyertakan SRT; jangan pernah menawarkan ekspor video-only. "+"Jika SRT belum ada, tool export_all akan meminta pengguna memilih SRT.\n\n"
+            "Jangan menyimpan atau mengekspor kecuali pengguna memintanya eksplisit. "
+            "Setiap ekspor WAJIB menyertakan SRT; jangan pernah menawarkan ekspor tanpa SRT. "
+            "Jika SRT belum ada, tool export_all akan meminta pengguna memilih SRT.\n\n"
             "TOOL MANIFEST:\n" + json.dumps(self.registry.manifest(), ensure_ascii=False) +
             "\n\nCURRENT STATE:\n" + json.dumps(state, ensure_ascii=False)
         )
