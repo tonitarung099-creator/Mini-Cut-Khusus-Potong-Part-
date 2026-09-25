@@ -384,6 +384,55 @@ class WorkerFinalizationRaceTests(unittest.TestCase):
 
 
 class MandatorySubtitleExportTests(unittest.TestCase):
+    def test_fast_keyframe_split_is_forced_to_smartcut_for_srt_sync(self):
+        import tempfile
+        from pathlib import Path
+
+        class ModeStub:
+            def __init__(self):
+                self.value = "fast"
+
+            def currentData(self):
+                return self.value
+
+            def findData(self, value):
+                return 0 if value == "smartcut" else -1
+
+            def setCurrentIndex(self, _index):
+                self.value = "smartcut"
+
+        class Host:
+            _require_tool_project_ready = MiniCutWindow._require_tool_project_ready
+            _require_tool_media_ready = MiniCutWindow._require_tool_media_ready
+            tool_export_all = MiniCutWindow.tool_export_all
+
+            def _log(self, _text):
+                pass
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "movie.mp4"
+            source.write_bytes(b"video")
+
+            host = Host()
+            host.model = ProjectModel()
+            host.model.source = source
+            host.model.duration_ms = 2_000
+            host.model.keyframes = [0, 1_000, 2_000]
+            host.model.cuts = [CutPoint(1_000, 1_000, None)]
+            host.analyze_worker = None
+            host.film_cut_worker = None
+            host.export_worker = None
+            host.export_mode = ModeStub()
+
+            def fake_find_tool(name):
+                return "ffmpeg" if name == "ffmpeg" else None
+
+            with patch("minicut_agent.ui.find_tool", side_effect=fake_find_tool):
+                with self.assertRaisesRegex(RuntimeError, "SmartCut tidak ditemukan"):
+                    host.tool_export_all()
+
+            self.assertEqual(host.export_mode.value, "smartcut")
+
     def test_export_requires_srt_before_output_folder_is_requested(self):
         import tempfile
         from pathlib import Path
