@@ -300,6 +300,26 @@ class SubtitlePartExportTests(unittest.TestCase):
                     [(0, 5_000), (4_999, 10_000)],
                 )
 
+    def test_write_srt_parts_rejects_srt_with_no_cues_inside_video(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "wrong.srt"
+            source.write_text(
+                "1\n"
+                "00:10:00,000 --> 00:10:01,000\n"
+                "Subtitle video lain\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "tidak memiliki cue.*durasi video"):
+                write_srt_parts(
+                    source,
+                    root / "out-wrong",
+                    "Film",
+                    [(0, 5_000), (5_000, 10_000)],
+                    expected_duration_ms=10_000,
+                )
+
     def test_write_srt_parts_rejects_incomplete_full_duration(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
