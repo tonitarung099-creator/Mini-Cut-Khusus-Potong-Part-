@@ -941,7 +941,8 @@ class MiniCutWindow(QMainWindow):
         self.srt_btn = QPushButton("Pilih SRT")
         self.srt_clear_btn = QPushButton("Ganti SRT")
         self.srt_clear_btn.setToolTip(
-            "Pilih SRT pengganti. Ekspor MiniCut selalu wajib menyertakan SRT."
+            "Pilih SRT pengganti untuk AI Film Cut dan SmartCut. "
+            "Fast Copy mengekspor video saja tanpa SRT."
         )
         srt_layout.addWidget(self.srt_edit, 1)
         srt_layout.addWidget(self.srt_btn)
@@ -1344,8 +1345,8 @@ class MiniCutWindow(QMainWindow):
             if project_auto_disabled:
                 self._srt_project_reference = None
                 subtitle_status = (
-                    "Proyek belum memiliki SRT aktif. Pilih SRT untuk Analisis Film; "
-                    "saat ekspor MiniCut juga akan mewajibkan SRT."
+                    "Proyek belum memiliki SRT aktif. Pilih SRT untuk Analisis Film "
+                    "atau ekspor SmartCut. Fast Copy tidak memerlukan SRT."
                 )
             elif project_subtitle is not None:
                 try:
@@ -1690,7 +1691,7 @@ class MiniCutWindow(QMainWindow):
                     elif self._srt_user_disabled:
                         self.film_status_label.setText(
                             "Undo memulihkan keadaan tanpa SRT aktif. "
-                            "Ekspor tetap wajib memilih SRT."
+                            "SmartCut tetap memerlukan SRT; Fast Copy tidak."
                         )
 
     def tool_transaction_snapshot(self) -> dict:
@@ -3226,8 +3227,12 @@ class MiniCutWindow(QMainWindow):
             else None
         )
         state["subtitle"] = {
-            "required_for_export": True,
+            "required_for_export": False,
+            "required_for_smartcut_export": True,
+            "required_for_fast_export": False,
             "required_for_film_cut": True,
+            "smartcut_outputs_srt": True,
+            "fast_copy_outputs_srt": False,
             "loaded": active_srt is not None,
             "path": str(active_srt) if active_srt is not None else None,
         }
@@ -3456,108 +3461,92 @@ class MiniCutWindow(QMainWindow):
             raise RuntimeError(
                 "Ekspor sedang berjalan atau sedang memfinalisasi hasil."
             )
+
         ffmpeg = find_tool("ffmpeg")
         if not ffmpeg:
             raise RuntimeError("ffmpeg tidak ditemukan. Pastikan FFmpeg tersedia.")
+
         mode = str(self.export_mode.currentData() or "smartcut")
-        has_exact_cuts = any(
-            bool(str(c.exact_time or "").strip())
-            for c in self.model.cuts
-        )
-        has_non_keyframe_cuts = self.model.has_non_keyframe_cuts()
-        # SRT wajib mengikuti boundary video yang benar-benar diekspor. FFmpeg
-        # stream-copy/segmenter dapat bergeser ke keyframe/DTS yang tersedia,
-        # termasuk pada beberapa file yang cut-nya tampak berada di keyframe.
-        # Karena itu setiap ekspor yang benar-benar membagi video menjadi part
-        # selalu memakai SmartCut. Fast Copy hanya aman untuk timeline tanpa cut.
-        if mode == "fast" and self.model.cuts:
-            smart_index = self.export_mode.findData("smartcut")
-            if smart_index >= 0:
-                self.export_mode.setCurrentIndex(smart_index)
+        if mode not in {"smartcut", "fast"}:
             mode = "smartcut"
-            if has_exact_cuts:
-                reason = "timeline memiliki cut PTS exact"
-            elif has_non_keyframe_cuts:
-                reason = "timeline memiliki cut yang bukan keyframe"
-            else:
-                reason = "ekspor berpart + SRT harus memakai boundary frame yang sama"
-            self._log(
-                "Fast Copy dilewati: "
-                + reason
-                + ". SmartCut dipakai agar video dan SRT tetap sinkron."
-            )
+
         smartcut_exe = None
+        export_srt: Path | None = None
+
         if mode == "smartcut":
             smartcut_exe = find_tool("MiniCut SmartCut") or find_tool("smartcut")
             if not smartcut_exe:
                 raise RuntimeError(
-                    "MiniCut SmartCut tidak ditemukan. Gunakan paket aplikasi lengkap. "
-                    "Ekspor berpart + SRT tidak dialihkan ke Fast Copy karena dapat menggeser sinkron subtitle."
+                    "MiniCut SmartCut tidak ditemukan. Gunakan paket aplikasi lengkap."
                 )
-        export_srt: Path | None = None
 
-        # Ekspor MiniCut selalu wajib membawa SRT. Coba pakai SRT aktif,
-        # referensi proyek, lalu file dengan nama yang sama di samping video.
-        subtitle_candidates: list[Path] = []
-        if self.srt_path is not None:
-            subtitle_candidates.append(self.srt_path)
-        if self._srt_project_reference is not None:
-            subtitle_candidates.append(self._srt_project_reference)
-        subtitle_candidates.append(self.model.source.with_suffix(".srt"))
+            # Hanya SmartCut yang mengekspor subtitle. Cari SRT aktif, referensi
+            # proyek, lalu NamaVideo.srt. Jika belum ada yang valid, minta user.
+            subtitle_candidates: list[Path] = []
+            if self.srt_path is not None:
+                subtitle_candidates.append(self.srt_path)
+            if self._srt_project_reference is not None:
+                subtitle_candidates.append(self._srt_project_reference)
+            subtitle_candidates.append(self.model.source.with_suffix(".srt"))
 
-        seen_subtitles: set[Path] = set()
-        for candidate in subtitle_candidates:
-            resolved = Path(candidate).resolve()
-            if resolved in seen_subtitles:
-                continue
-            seen_subtitles.add(resolved)
-            if not resolved.is_file():
-                continue
+            seen_subtitles: set[Path] = set()
+            for candidate in subtitle_candidates:
+                resolved = Path(candidate).resolve()
+                if resolved in seen_subtitles:
+                    continue
+                seen_subtitles.add(resolved)
+                if not resolved.is_file():
+                    continue
+                try:
+                    SubtitleTrack.load(resolved)
+                except Exception as exc:
+                    self._log(
+                        "SRT kandidat tidak dapat dipakai untuk SmartCut: "
+                        + str(resolved)
+                        + " · "
+                        + str(exc)
+                    )
+                    continue
+                export_srt = resolved
+                self.srt_path = resolved
+                self._srt_project_reference = resolved
+                self._srt_auto_disabled = False
+                self._srt_user_disabled = False
+                if hasattr(self, "srt_edit"):
+                    self.srt_edit.setText(str(resolved))
+                break
+
+            if export_srt is None:
+                if not self._choose_srt():
+                    raise RuntimeError(
+                        "Ekspor SmartCut wajib menyertakan SRT. "
+                        "Pilih file SRT terlebih dahulu."
+                    )
+                if self.srt_path is None or not self.srt_path.is_file():
+                    raise RuntimeError(
+                        "Ekspor SmartCut wajib menyertakan SRT yang valid."
+                    )
+                export_srt = self.srt_path.resolve()
+
             try:
-                SubtitleTrack.load(resolved)
+                SubtitleTrack.load(export_srt)
             except Exception as exc:
-                self._log(
-                    "SRT kandidat tidak dapat dipakai untuk ekspor: "
-                    + str(resolved)
-                    + " · "
-                    + str(exc)
-                )
-                continue
-            export_srt = resolved
-            self.srt_path = resolved
-            self._srt_project_reference = resolved
+                raise RuntimeError(
+                    "SRT tidak valid dan SmartCut belum dimulai: " + str(exc)
+                ) from exc
+
+            self.srt_path = export_srt
+            self._srt_project_reference = export_srt
             self._srt_auto_disabled = False
             self._srt_user_disabled = False
             if hasattr(self, "srt_edit"):
-                self.srt_edit.setText(str(resolved))
-            break
-
-        if export_srt is None:
-            # Baik tombol UI maupun perintah Gemini berakhir di tool ini,
-            # jadi dialog SRT wajib muncul dari satu gerbang ekspor yang sama.
-            if not self._choose_srt():
-                raise RuntimeError(
-                    "Ekspor wajib menyertakan SRT. Pilih file SRT terlebih dahulu."
-                )
-            if self.srt_path is None or not self.srt_path.is_file():
-                raise RuntimeError(
-                    "Ekspor wajib menyertakan SRT yang valid."
-                )
-            export_srt = self.srt_path.resolve()
-
-        try:
-            SubtitleTrack.load(export_srt)
-        except Exception as exc:
-            raise RuntimeError(
-                "SRT tidak valid dan ekspor belum dimulai: " + str(exc)
-            ) from exc
-
-        self.srt_path = export_srt
-        self._srt_project_reference = export_srt
-        self._srt_auto_disabled = False
-        self._srt_user_disabled = False
-        if hasattr(self, "srt_edit"):
-            self.srt_edit.setText(str(export_srt))
+                self.srt_edit.setText(str(export_srt))
+        else:
+            # Fast Copy sengaja video-only. SRT yang sedang aktif tetap disimpan
+            # di proyek untuk AI/SmartCut, tetapi tidak divalidasi dan tidak diekspor.
+            self._log(
+                "Fast Copy: ekspor video saja. SRT tidak diperlukan dan tidak dibuat."
+            )
 
         parent = QFileDialog.getExistingDirectory(self, "Pilih folder hasil ekspor")
         if not parent:
@@ -3582,33 +3571,28 @@ class MiniCutWindow(QMainWindow):
         self.export_worker.failed.connect(self._export_failed)
         self.export_worker.cancelled.connect(self._export_cancelled)
         self.progress.setValue(0)
-        subtitle_suffix = " + SRT per part"
-        self.status.setText(
-            ("SmartCut frame-accurate" if mode == "smartcut" else "Fast Copy")
-            + subtitle_suffix
-            + "…"
-        )
-        self._log(
-            (
-                "Mode ekspor: SmartCut frame-accurate"
-                if mode == "smartcut"
-                else "Mode ekspor: Fast Copy keyframe"
+
+        if mode == "smartcut":
+            self.status.setText("SmartCut frame-accurate + SRT per part…")
+            self._log("Mode ekspor: SmartCut frame-accurate + SRT per part")
+            self._log(
+                "Subtitle SmartCut: "
+                + str(export_srt)
+                + " · setiap part di-reset mulai 00:00:00,000."
             )
-            + subtitle_suffix
-        )
-        self._log(
-            "Subtitle ekspor wajib: "
-            + str(export_srt)
-            + " · setiap part di-reset mulai 00:00:00,000."
-        )
+        else:
+            self.status.setText("Fast Copy · video saja…")
+            self._log("Mode ekspor: Fast Copy keyframe · video saja tanpa SRT")
+
         self.export_worker.start()
         return {
             "ok": True,
             "started": True,
             "mode": mode,
             "output_dir": str(out_dir),
-            "subtitle": str(export_srt),
-            "subtitle_required": True,
+            "subtitle": str(export_srt) if export_srt is not None else None,
+            "subtitle_required": mode == "smartcut",
+            "subtitle_exported": mode == "smartcut",
             "stop_plan": True,
         }
 
