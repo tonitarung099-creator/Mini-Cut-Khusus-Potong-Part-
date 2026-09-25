@@ -70,6 +70,16 @@ class ExportWorker(QThread):
     def run(self):
         started = time.time()
         try:
+            if self.srt_path is None:
+                raise RuntimeError(
+                    "Ekspor MiniCut wajib menyertakan SRT."
+                )
+            if not self.srt_path.is_file():
+                raise RuntimeError(
+                    "SRT ekspor sudah tidak ditemukan: " + str(self.srt_path)
+                )
+            SubtitleTrack.load(self.srt_path)
+
             if self.mode == "smartcut":
                 if not self.smartcut_exe:
                     raise RuntimeError("MiniCut SmartCut tidak ditemukan.")
