@@ -38,8 +38,8 @@ def probe_frame_timestamps(
         if raw in (None, "N/A"):
             continue
         try:
-            ms = int(round(float(raw) * 1000))
-        except (TypeError, ValueError):
+            ms = int(round(Fraction(str(raw)) * 1000))
+        except (TypeError, ValueError, ZeroDivisionError):
             continue
         if start_ms - 1000 <= ms <= end_ms + 1000:
             frames.append(ms)
