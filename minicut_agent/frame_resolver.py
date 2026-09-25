@@ -6,7 +6,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from .core import run_text
+from .core import fraction_seconds_to_ms, run_text
 from .subtitles import SubtitleTrack, format_ms
 
 
@@ -38,7 +38,7 @@ def probe_frame_timestamps(
         if raw in (None, "N/A"):
             continue
         try:
-            ms = int(round(Fraction(str(raw)) * 1000))
+            ms = fraction_seconds_to_ms(Fraction(str(raw)))
         except (TypeError, ValueError, ZeroDivisionError):
             continue
         if start_ms - 1000 <= ms <= end_ms + 1000:
@@ -145,7 +145,7 @@ def probe_frame_points(
 
         # Jangan lewat float: PTS exact dan boundary SRT harus membulatkan
         # dari Fraction yang sama agar tidak berbeda 1 ms di titik tertentu.
-        ms = int(round(relative * 1000))
+        ms = fraction_seconds_to_ms(relative)
         if start_ms <= ms <= end_ms:
             # Seek one microsecond before this PTS for the JPEG shown to Gemini.
             # The exact rational PTS itself is still preserved for SmartCut.
