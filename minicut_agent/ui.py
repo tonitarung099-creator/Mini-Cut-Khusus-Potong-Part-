@@ -1399,7 +1399,7 @@ class MiniCutWindow(QMainWindow):
                     )
                     subtitle_status = (
                         "SRT dengan nama yang sama ditemukan tetapi tidak valid. "
-                        "Pilih SRT lain atau ekspor video tanpa subtitle."
+                        "Pilih SRT lain; ekspor tidak dapat dimulai tanpa SRT valid."
                     )
                 else:
                     self.srt_path = auto_srt.resolve()
