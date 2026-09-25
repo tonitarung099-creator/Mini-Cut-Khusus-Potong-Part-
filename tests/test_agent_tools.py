@@ -384,7 +384,7 @@ class WorkerFinalizationRaceTests(unittest.TestCase):
 
 
 class MandatorySubtitleExportTests(unittest.TestCase):
-    def test_fast_keyframe_split_is_forced_to_smartcut_for_srt_sync(self):
+    def test_fast_copy_does_not_require_srt_or_switch_mode(self):
         import tempfile
         from pathlib import Path
 
@@ -395,8 +395,8 @@ class MandatorySubtitleExportTests(unittest.TestCase):
             def currentData(self):
                 return self.value
 
-            def findData(self, value):
-                return 0 if value == "smartcut" else -1
+            def findData(self, _value):
+                return -1
 
             def setCurrentIndex(self, _index):
                 self.value = "smartcut"
@@ -405,6 +405,10 @@ class MandatorySubtitleExportTests(unittest.TestCase):
             _require_tool_project_ready = MiniCutWindow._require_tool_project_ready
             _require_tool_media_ready = MiniCutWindow._require_tool_media_ready
             tool_export_all = MiniCutWindow.tool_export_all
+
+            def _choose_srt(self):
+                self.srt_picker_called = True
+                return False
 
             def _log(self, _text):
                 pass
@@ -422,24 +426,31 @@ class MandatorySubtitleExportTests(unittest.TestCase):
             host.analyze_worker = None
             host.film_cut_worker = None
             host.export_worker = None
+            host.srt_path = None
+            host._srt_project_reference = None
+            host._srt_auto_disabled = False
+            host._srt_user_disabled = False
+            host.srt_picker_called = False
             host.export_mode = ModeStub()
 
-            def fake_find_tool(name):
-                return "ffmpeg" if name == "ffmpeg" else None
+            with patch("minicut_agent.ui.find_tool", return_value="ffmpeg"), patch(
+                "minicut_agent.ui.QFileDialog.getExistingDirectory",
+                return_value="",
+            ):
+                result = host.tool_export_all()
 
-            with patch("minicut_agent.ui.find_tool", side_effect=fake_find_tool):
-                with self.assertRaisesRegex(RuntimeError, "SmartCut tidak ditemukan"):
-                    host.tool_export_all()
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["cancelled"])
+            self.assertFalse(host.srt_picker_called)
+            self.assertEqual(host.export_mode.value, "fast")
 
-            self.assertEqual(host.export_mode.value, "smartcut")
-
-    def test_export_requires_srt_before_output_folder_is_requested(self):
+    def test_smartcut_requires_srt_before_output_folder_is_requested(self):
         import tempfile
         from pathlib import Path
 
         class ModeStub:
             def currentData(self):
-                return "fast"
+                return "smartcut"
 
             def findData(self, _value):
                 return -1
@@ -477,17 +488,23 @@ class MandatorySubtitleExportTests(unittest.TestCase):
             host.srt_picker_called = False
             host.export_mode = ModeStub()
 
-            with patch("minicut_agent.ui.find_tool", return_value="ffmpeg"), patch(
+            def fake_find_tool(name):
+                if name == "ffmpeg":
+                    return "ffmpeg"
+                if name in {"MiniCut SmartCut", "smartcut"}:
+                    return "smartcut"
+                return None
+
+            with patch("minicut_agent.ui.find_tool", side_effect=fake_find_tool), patch(
                 "minicut_agent.ui.QFileDialog.getExistingDirectory"
             ) as folder_picker:
-                with self.assertRaisesRegex(RuntimeError, "wajib menyertakan SRT"):
+                with self.assertRaisesRegex(RuntimeError, "SmartCut wajib menyertakan SRT"):
                     host.tool_export_all()
 
             self.assertTrue(host.srt_picker_called)
             folder_picker.assert_not_called()
 
-
-    def test_agent_state_marks_srt_as_required(self):
+    def test_agent_state_describes_mode_specific_srt_requirement(self):
         import tempfile
         from pathlib import Path
 
@@ -507,8 +524,12 @@ class MandatorySubtitleExportTests(unittest.TestCase):
 
             state = host.tool_get_state()["state"]["subtitle"]
 
-        self.assertTrue(state["required_for_export"])
+        self.assertFalse(state["required_for_export"])
+        self.assertTrue(state["required_for_smartcut_export"])
+        self.assertFalse(state["required_for_fast_export"])
         self.assertTrue(state["required_for_film_cut"])
+        self.assertTrue(state["smartcut_outputs_srt"])
+        self.assertFalse(state["fast_copy_outputs_srt"])
         self.assertFalse(state["loaded"])
 
 
