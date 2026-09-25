@@ -58,6 +58,13 @@ class ManualCommandTimestampTests(unittest.TestCase):
     def test_unknown_suffix_does_not_lock_partial_hour(self):
         self.assertEqual(self.times("potong 1jam 12xyz"), [])
 
+    def test_fractional_manual_times_use_same_half_up_rule_as_srt(self):
+        self.assertEqual(parse_time_ms("0.5085 detik"), 509)
+        self.assertEqual(parse_time_ms("00:00:00.5085"), 509)
+        self.assertEqual(parse_time_ms("0.5085"), 509)
+        self.assertEqual(parse_time_ms("508.5 ms"), 509)
+        self.assertEqual(self.times("potong 0.5085 detik"), [509])
+
     def test_parse_time_ms_accepts_natural_and_compact_units(self):
         self.assertEqual(parse_time_ms("1 jam 12 dtik"), 3_612_000)
         self.assertEqual(parse_time_ms("1h12s"), 3_612_000)
