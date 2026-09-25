@@ -110,11 +110,11 @@ def probe_media(source: Path, ffprobe: str) -> dict[str, Any]:
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "ffprobe gagal membaca video.")
     data = json.loads(result.stdout or "{}")
-    duration = 0.0
+    duration = Fraction(0)
     try:
-        duration = float(data.get("format", {}).get("duration") or 0)
-    except (TypeError, ValueError):
-        duration = 0.0
+        duration = Fraction(str(data.get("format", {}).get("duration") or "0"))
+    except (TypeError, ValueError, ZeroDivisionError):
+        duration = Fraction(0)
     fps = 0.0
     width = height = 0
     codec = ""
@@ -132,12 +132,15 @@ def probe_media(source: Path, ffprobe: str) -> dict[str, Any]:
             fps = 0.0
         if duration <= 0:
             try:
-                duration = float(stream.get("duration") or 0)
-            except (TypeError, ValueError):
+                duration = Fraction(str(stream.get("duration") or "0"))
+            except (TypeError, ValueError, ZeroDivisionError):
                 pass
         break
     return {
-        "duration_ms": max(0, int(duration * 1000)),
+        # Bulatkan durasi dengan aritmetika rasional yang sama seperti
+        # PTS frame/SRT. Jangan floor via int(float), karena cue di <1 ms
+        # terakhir bisa terpotong dari part final.
+        "duration_ms": max(0, int(round(duration * 1000))),
         "fps": fps,
         "width": width,
         "height": height,
