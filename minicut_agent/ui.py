@@ -1309,8 +1309,9 @@ class MiniCutWindow(QMainWindow):
 
         # Subtitle dan hasil AI selalu terkait video tertentu. Jangan membawa
         # SRT/hasil Film Cut dari media sebelumnya ke video yang baru dibuka.
-        # Proyek baru menyimpan pilihan SRT manual + status video-only. Proyek
-        # lama tetap memakai auto-detect NamaVideo.srt agar kompatibel.
+        # Proyek lama mungkin masih menyimpan status tanpa SRT aktif.
+        # Status itu tetap dibaca untuk kompatibilitas, tetapi ekspor sekarang
+        # selalu meminta SRT valid sebelum dapat dimulai.
         self.srt_path = None
         self._srt_project_reference = None
         self._srt_auto_disabled = False
@@ -1343,8 +1344,8 @@ class MiniCutWindow(QMainWindow):
             if project_auto_disabled:
                 self._srt_project_reference = None
                 subtitle_status = (
-                    "Proyek memulihkan mode video-only. Pilih SRT bila ingin "
-                    "subtitle ikut dianalisis/diekspor."
+                    "Proyek belum memiliki SRT aktif. Pilih SRT untuk Analisis Film; "
+                    "saat ekspor MiniCut juga akan mewajibkan SRT."
                 )
             elif project_subtitle is not None:
                 try:
@@ -1688,7 +1689,8 @@ class MiniCutWindow(QMainWindow):
                         )
                     elif self._srt_user_disabled:
                         self.film_status_label.setText(
-                            "Undo memulihkan mode video-only."
+                            "Undo memulihkan keadaan tanpa SRT aktif. "
+                            "Ekspor tetap wajib memilih SRT."
                         )
 
     def tool_transaction_snapshot(self) -> dict:
