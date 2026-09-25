@@ -525,7 +525,7 @@ class MandatorySubtitleExportTests(unittest.TestCase):
 
             state = host.tool_get_state()["state"]["subtitle"]
 
-        self.assertFalse(state["required_for_export"])
+        self.assertTrue(state["required_for_export"])
         self.assertTrue(state["required_for_current_export"])
         self.assertTrue(state["required_for_smartcut_export"])
         self.assertFalse(state["required_for_fast_export"])
@@ -533,6 +533,37 @@ class MandatorySubtitleExportTests(unittest.TestCase):
         self.assertTrue(state["smartcut_outputs_srt"])
         self.assertFalse(state["fast_copy_outputs_srt"])
         self.assertFalse(state["loaded"])
+
+    def test_fast_mode_state_marks_srt_as_not_required(self):
+        import tempfile
+        from pathlib import Path
+
+        class ModeStub:
+            def currentData(self):
+                return "fast"
+
+        class Host:
+            _state_with_subtitle = MiniCutWindow._state_with_subtitle
+            tool_get_state = MiniCutWindow.tool_get_state
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "movie.mp4"
+            source.write_bytes(b"video")
+
+            host = Host()
+            host.model = ProjectModel()
+            host.model.source = source
+            host.model.duration_ms = 1_000
+            host.srt_path = None
+            host.export_mode = ModeStub()
+
+            state = host.tool_get_state()["state"]
+
+        self.assertEqual(state["export"]["mode"], "fast")
+        self.assertFalse(state["subtitle"]["required_for_export"])
+        self.assertFalse(state["subtitle"]["required_for_current_export"])
+        self.assertFalse(state["subtitle"]["required_for_fast_export"])
+        self.assertTrue(state["subtitle"]["required_for_smartcut_export"])
 
 
 
@@ -765,7 +796,7 @@ class BridgeUndoTests(unittest.TestCase):
         self.assertTrue(call.event.is_set())
         self.assertFalse(call.result["ok"])
         self.assertEqual(host.undo_stack, [])
-        self.assertFalse(host.bridge_state["subtitle"]["required_for_export"])
+        self.assertTrue(host.bridge_state["subtitle"]["required_for_export"])
         self.assertTrue(
             host.bridge_state["subtitle"]["required_for_current_export"]
         )
