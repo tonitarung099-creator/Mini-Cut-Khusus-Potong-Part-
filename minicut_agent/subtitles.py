@@ -271,6 +271,7 @@ def format_srt_ms(ms: int) -> str:
 
 def _validate_part_ranges(
     ranges: list[tuple[int, int]],
+    expected_duration_ms: int | None = None,
 ) -> list[tuple[int, int]]:
     """Pastikan rentang part SRT berurutan, tidak overlap, dan tanpa gap."""
     if not ranges:
@@ -299,6 +300,21 @@ def _validate_part_ranges(
             )
         normalized.append((start_ms, end_ms))
         previous_end = end_ms
+
+    if expected_duration_ms is not None:
+        expected = int(expected_duration_ms)
+        if expected <= 0:
+            raise ValueError("Durasi video untuk pembagian SRT tidak valid.")
+        if normalized[0][0] != 0:
+            raise ValueError(
+                "Rentang SRT ekspor penuh harus dimulai dari 00:00:00,000."
+            )
+        if normalized[-1][1] != expected:
+            raise ValueError(
+                "Rentang SRT ekspor penuh tidak menutup durasi video: "
+                f"{format_srt_ms(normalized[-1][1])} != "
+                f"{format_srt_ms(expected)}."
+            )
     return normalized
 
 
@@ -342,6 +358,7 @@ def write_srt_parts(
     output_dir: str | Path,
     base_name: str,
     ranges: list[tuple[int, int]],
+    expected_duration_ms: int | None = None,
 ) -> list[Path]:
     """Buat satu file SRT untuk setiap rentang video.
 
@@ -353,7 +370,10 @@ def write_srt_parts(
     agar MiniCut tidak pernah menghasilkan SRT yang salah part secara diam-diam.
     """
     track = SubtitleTrack.load(source_srt)
-    normalized_ranges = _validate_part_ranges(ranges)
+    normalized_ranges = _validate_part_ranges(
+        ranges,
+        expected_duration_ms=expected_duration_ms,
+    )
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
 
