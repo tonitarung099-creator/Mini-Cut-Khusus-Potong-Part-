@@ -269,6 +269,74 @@ def format_srt_ms(ms: int) -> str:
     return format_ms(ms).replace(".", ",")
 
 
+def _validate_part_ranges(
+    ranges: list[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    """Pastikan rentang part SRT berurutan, tidak overlap, dan tanpa gap."""
+    if not ranges:
+        raise ValueError("Daftar rentang subtitle part kosong.")
+
+    normalized: list[tuple[int, int]] = []
+    previous_end: int | None = None
+    for index, pair in enumerate(ranges, 1):
+        if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+            raise ValueError(f"Rentang SRT Part-{index:02d} tidak valid.")
+        start_ms, end_ms = int(pair[0]), int(pair[1])
+        if start_ms < 0:
+            raise ValueError(
+                f"Rentang SRT Part-{index:02d} memiliki start negatif."
+            )
+        if end_ms <= start_ms:
+            raise ValueError(
+                f"Rentang SRT Part-{index:02d} tidak memiliki durasi positif."
+            )
+        if previous_end is not None and start_ms != previous_end:
+            relation = "overlap" if start_ms < previous_end else "gap"
+            raise ValueError(
+                "Rentang SRT tidak kontinu: "
+                f"Part-{index - 1:02d} berakhir {format_srt_ms(previous_end)}, "
+                f"Part-{index:02d} mulai {format_srt_ms(start_ms)} ({relation})."
+            )
+        normalized.append((start_ms, end_ms))
+        previous_end = end_ms
+    return normalized
+
+
+def _validate_rendered_part(
+    payload: str,
+    part_duration_ms: int,
+    part_index: int,
+) -> None:
+    """Validasi hasil serialisasi supaya cue tidak keluar dari durasi part."""
+    if not payload.strip():
+        return
+
+    # Parse ulang hasil yang baru ditulis dari teks sementara. Hindari I/O kedua
+    # dengan validasi langsung terhadap setiap timestamp line.
+    cue_count = 0
+    for line in payload.splitlines():
+        if not _is_time_line(line):
+            continue
+        left, right = line.split("-->", 1)
+        start_ms = _time_ms(left)
+        end_ms = _time_ms(right)
+        if start_ms < 0 or end_ms <= start_ms:
+            raise RuntimeError(
+                f"SRT Part-{part_index:02d} menghasilkan cue tidak valid."
+            )
+        if end_ms > part_duration_ms:
+            raise RuntimeError(
+                f"SRT Part-{part_index:02d} melewati durasi video part "
+                f"({format_srt_ms(end_ms)} > {format_srt_ms(part_duration_ms)})."
+            )
+        cue_count += 1
+
+    if cue_count <= 0:
+        raise RuntimeError(
+            f"SRT Part-{part_index:02d} berisi teks tetapi timestamp cue tidak terbaca."
+        )
+
+
 def write_srt_parts(
     source_srt: str | Path,
     output_dir: str | Path,
@@ -280,15 +348,24 @@ def write_srt_parts(
     Teks subtitle dipertahankan. Cue yang melewati boundary dibelah secara
     lossless terhadap teksnya dan masing-masing sisi diklip ke durasi part.
     Timestamp setiap part selalu dimulai dari 00:00:00,000.
+
+    Rentang wajib kontinu. Jika caller memberi gap/overlap, ekspor dihentikan
+    agar MiniCut tidak pernah menghasilkan SRT yang salah part secara diam-diam.
     """
     track = SubtitleTrack.load(source_srt)
+    normalized_ranges = _validate_part_ranges(ranges)
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
 
     files: list[Path] = []
-    for index, (start_ms, end_ms) in enumerate(ranges, 1):
+    for index, (start_ms, end_ms) in enumerate(normalized_ranges, 1):
         path = destination / f"{base_name}_Part-{index:02d}.srt"
-        payload = track.to_srt_range(int(start_ms), int(end_ms))
+        payload = track.to_srt_range(start_ms, end_ms)
+        _validate_rendered_part(
+            payload,
+            part_duration_ms=end_ms - start_ms,
+            part_index=index,
+        )
         path.write_text(payload, encoding="utf-8", newline="\n")
         files.append(path)
     return files
