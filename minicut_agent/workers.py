@@ -70,17 +70,16 @@ class ExportWorker(QThread):
     def run(self):
         started = time.time()
         try:
-            if self.srt_path is None:
-                raise RuntimeError(
-                    "Ekspor MiniCut wajib menyertakan SRT."
-                )
-            if not self.srt_path.is_file():
-                raise RuntimeError(
-                    "SRT ekspor sudah tidak ditemukan: " + str(self.srt_path)
-                )
-            SubtitleTrack.load(self.srt_path)
-
             if self.mode == "smartcut":
+                if self.srt_path is None:
+                    raise RuntimeError(
+                        "Ekspor SmartCut wajib menyertakan SRT."
+                    )
+                if not self.srt_path.is_file():
+                    raise RuntimeError(
+                        "SRT SmartCut sudah tidak ditemukan: " + str(self.srt_path)
+                    )
+                SubtitleTrack.load(self.srt_path)
                 if not self.smartcut_exe:
                     raise RuntimeError("MiniCut SmartCut tidak ditemukan.")
                 count, size = export_segments_smartcut(
@@ -97,6 +96,8 @@ class ExportWorker(QThread):
                     srt_path=self.srt_path,
                 )
             else:
+                # Fast Copy selalu video-only. Abaikan SRT meskipun caller lama
+                # tidak sengaja masih mengirim srt_path.
                 count, size = export_segments(
                     self.ffmpeg,
                     self.source,
@@ -107,7 +108,7 @@ class ExportWorker(QThread):
                     progress=lambda p, t: self.progress_changed.emit(p, t),
                     log=lambda s: self.log_line.emit(s),
                     cancelled=lambda: self._cancel,
-                    srt_path=self.srt_path,
+                    srt_path=None,
                 )
             self.done.emit(str(self.output_dir), count, size, time.time() - started)
         except InterruptedError:
