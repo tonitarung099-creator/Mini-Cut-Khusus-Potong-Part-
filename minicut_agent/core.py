@@ -793,8 +793,10 @@ def export_segments_smartcut(
                 raise RuntimeError(
                     f"PTS exact cut tidak valid pada {clock_text(ms)}: {exact}"
                 ) from exc
-            delta_ms = abs(float(exact_fraction) * 1000 - ms)
-            if delta_ms > 2.0:
+            # Bandingkan PTS exact tanpa float agar validasi timeline dan
+            # boundary SRT tidak bisa berbeda karena error representasi biner.
+            delta_ms = abs(exact_fraction * 1000 - ms)
+            if delta_ms > Fraction(2, 1):
                 raise RuntimeError(
                     "PTS exact cut tidak cocok dengan timestamp timeline "
                     f"({clock_text(ms)} vs {exact})."
