@@ -71,6 +71,13 @@ class FastExportNamingTests(unittest.TestCase):
         cmd = captured["cmd"]
         index = cmd.index("-segment_start_number")
         self.assertEqual(cmd[index + 1], "1")
+        map_values = [
+            cmd[i + 1]
+            for i, value in enumerate(cmd[:-1])
+            if value == "-map"
+        ]
+        self.assertEqual(map_values, ["0:v?", "0:a?"])
+        self.assertNotIn("0", map_values)
 
 
 class FastExportZeroCutTests(unittest.TestCase):
