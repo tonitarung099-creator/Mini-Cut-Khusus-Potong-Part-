@@ -333,6 +333,55 @@ class SrtExportIntegrationTests(unittest.TestCase):
             )
 
 
+    def test_smartcut_exact_half_millisecond_keeps_boundary_cues_on_correct_side(self):
+        class SmartCutProc:
+            def __init__(self, cmd):
+                Path(cmd[2]).write_bytes(b"smartcut-part")
+                self.returncode = 0
+
+            def poll(self):
+                return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            srt = root / "movie.srt"
+            srt.write_text(
+                "1\n"
+                "00:00:00,507 --> 00:00:00,508\n"
+                "sebelum boundary\n\n"
+                "2\n"
+                "00:00:00,508 --> 00:00:00,510\n"
+                "sesudah boundary\n",
+                encoding="utf-8",
+            )
+            out = root / "movie_Parts"
+
+            with patch(
+                "minicut_agent.core.subprocess.Popen",
+                side_effect=lambda cmd, **kwargs: SmartCutProc(cmd),
+            ):
+                export_segments_smartcut(
+                    "smartcut",
+                    root / "movie.mp4",
+                    out,
+                    "movie",
+                    [508],
+                    1_000,
+                    cut_exact_times=["203/400"],
+                    srt_path=srt,
+                )
+
+            part1 = (out / "movie_Part-01.srt").read_text(encoding="utf-8")
+            part2 = (out / "movie_Part-02.srt").read_text(encoding="utf-8")
+            self.assertIn("sebelum boundary", part1)
+            self.assertNotIn("sesudah boundary", part1)
+            self.assertNotIn("sebelum boundary", part2)
+            self.assertIn(
+                "00:00:00,000 --> 00:00:00,002\nsesudah boundary",
+                part2,
+            )
+
+
     def test_smartcut_srt_boundary_uses_exact_pts_rounded_to_millisecond(self):
         class SmartCutProc:
             def __init__(self, cmd):
