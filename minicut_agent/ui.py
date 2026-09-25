@@ -1400,14 +1400,15 @@ class MiniCutWindow(QMainWindow):
                     )
                     subtitle_status = (
                         "SRT dengan nama yang sama ditemukan tetapi tidak valid. "
-                        "Pilih SRT lain; ekspor tidak dapat dimulai tanpa SRT valid."
+                        "Pilih SRT lain untuk Analisis Film atau SmartCut; "
+                        "Fast Copy tetap dapat dipakai tanpa SRT."
                     )
                 else:
                     self.srt_path = auto_srt.resolve()
                     self._srt_project_reference = self.srt_path
                     subtitle_status = (
                         "SRT otomatis ditemukan dan siap untuk "
-                        "Analisis Film + ekspor part."
+                        "Analisis Film + SmartCut."
                     )
             else:
                 subtitle_status = (
@@ -2642,8 +2643,8 @@ class MiniCutWindow(QMainWindow):
                 self.film_preview_btn.setEnabled(False)
         if hasattr(self, "film_status_label"):
             self.film_status_label.setText(
-                "SRT dilepas. Ekspor tidak dapat berjalan tanpa SRT; "
-                "pilih SRT lagi sebelum Analisis Film atau ekspor."
+                "SRT dilepas. Pilih SRT lagi sebelum Analisis Film atau SmartCut. "
+                "Fast Copy tetap dapat mengekspor video tanpa SRT."
             )
         self._log("Subtitle dilepas dari proyek aktif.")
 
