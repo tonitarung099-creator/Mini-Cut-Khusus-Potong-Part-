@@ -28,7 +28,7 @@ class ToolRegistry:
                 {"name": "get_state", "args": {}, "description": "Baca status proyek dan timeline."},
                 {"name": "open_video", "args": {}, "description": "Buka dialog untuk memilih video sumber."},
                 {"name": "open_project", "args": {}, "description": "Buka dialog untuk memilih proyek MiniCut."},
-                {"name": "choose_subtitle", "args": {}, "description": "Buka dialog untuk memilih subtitle SRT."},
+                {"name": "choose_subtitle", "args": {}, "description": "Buka dialog untuk memilih subtitle SRT. SRT wajib untuk AI Film Cut dan setiap ekspor."},
                 {"name": "seek", "args": {"time_ms": "int|string"}, "description": "Pindahkan playhead ke timestamp arbitrer; tidak dibatasi kelipatan waktu tertentu."},
                 {"name": "play", "args": {}, "description": "Putar video."},
                 {"name": "pause", "args": {}, "description": "Jeda video."},
@@ -45,7 +45,7 @@ class ToolRegistry:
                 {"name": "preview_film_cut", "args": {"row": "int 1-based"}, "description": "Lompat ke hasil AI Film Cut tertentu untuk review."},
                 {"name": "set_export_mode", "args": {"mode": "smartcut|fast"}, "description": "Pilih mode ekspor SmartCut frame-accurate atau Fast Copy."},
                 {"name": "save_project", "args": {}, "description": "Simpan proyek ke path aktif atau minta lokasi."},
-                {"name": "export_all", "args": {}, "description": "Ekspor semua part."},
+                {"name": "export_all", "args": {}, "description": "Ekspor semua part video + SRT. SRT wajib; jika belum ada, aplikasi meminta pengguna memilih SRT sebelum ekspor."},
                 {"name": "cancel_export", "args": {}, "description": "Batalkan ekspor yang sedang berjalan."},
                 {"name": "undo", "args": {}, "description": "Batalkan perubahan agent terakhir."},
             ],
@@ -152,7 +152,7 @@ class AgentPlanner:
             "Keluarkan HANYA satu objek JSON valid tanpa markdown berbentuk "
             '{"version":1,"summary":"...","steps":[{"tool":"...","args":{...}}]}. '
             "Gunakan hanya tool yang tersedia. Jangan mengarang tool. "
-            "Jangan menyimpan atau mengekspor kecuali pengguna memintanya eksplisit.\n\n"
+            "Jangan menyimpan atau mengekspor kecuali pengguna memintanya eksplisit. "+"Setiap ekspor WAJIB menyertakan SRT; jangan pernah menawarkan ekspor video-only. "+"Jika SRT belum ada, tool export_all akan meminta pengguna memilih SRT.\n\n"
             "TOOL MANIFEST:\n" + json.dumps(self.registry.manifest(), ensure_ascii=False) +
             "\n\nCURRENT STATE:\n" + json.dumps(state, ensure_ascii=False)
         )
