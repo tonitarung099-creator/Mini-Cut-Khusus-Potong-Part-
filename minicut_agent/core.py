@@ -652,7 +652,11 @@ def export_segments(
         pattern = staging_dir / f"{base_name}_Part-%02d{ext}"
         cmd = [
             ffmpeg, "-y", "-hide_banner", "-nostats", "-progress", "pipe:1",
-            "-i", str(source), "-map", "0", "-c", "copy", "-map_metadata", "0",
+            "-i", str(source),
+            # Fast Copy benar-benar video + audio only. Jangan gunakan "-map 0"
+            # karena itu ikut menyalin subtitle stream internal dari container.
+            "-map", "0:v?", "-map", "0:a?",
+            "-c", "copy", "-map_metadata", "0",
         ]
         if valid_cuts:
             cmd += [
