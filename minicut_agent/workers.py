@@ -58,10 +58,20 @@ class ExportWorker(QThread):
         self.base_name = base_name
         self.cuts = list(cuts)
         self.duration_ms = duration_ms
-        self.mode = mode
+        normalized_mode = str(mode or "").strip().lower()
+        if normalized_mode not in {"smartcut", "fast"}:
+            raise ValueError("Mode ekspor harus 'smartcut' atau 'fast'.")
+        self.mode = normalized_mode
         self.smartcut_exe = smartcut_exe
         self.exact_cuts = list(exact_cuts or [])
-        self.srt_path = Path(srt_path).resolve() if srt_path is not None else None
+        # Fast Copy adalah video-only sampai level worker. Jangan menyimpan
+        # referensi SRT karena UI memakai atribut ini untuk melaporkan apakah
+        # hasil ekspor benar-benar memiliki companion SRT.
+        self.srt_path = (
+            Path(srt_path).resolve()
+            if self.mode == "smartcut" and srt_path is not None
+            else None
+        )
         self._cancel = False
 
     def cancel(self):
