@@ -217,6 +217,37 @@ class GeminiExactFrameAuthorityTests(unittest.TestCase):
         self.assertEqual(points[0]["time_ms"], 42)
         self.assertEqual(points[0]["exact_time"], "1001/24000")
 
+    def test_probe_frame_points_avoids_float_rounding_drift(self):
+        # 203/400 s = 507.5 ms. Binary float represents this just below
+        # the half boundary on some paths, which used to produce 507 ms.
+        payload = {
+            "streams": [{"time_base": "1/400"}],
+            "format": {"start_time": "0"},
+            "frames": [{
+                "best_effort_timestamp": 203,
+                "best_effort_timestamp_time": "0.507500",
+            }],
+        }
+        fake = type("Result", (), {
+            "returncode": 0,
+            "stdout": __import__("json").dumps(payload),
+            "stderr": "",
+        })()
+        with patch(
+            "minicut_agent.frame_resolver.run_text",
+            return_value=fake,
+        ):
+            points = probe_frame_points(
+                Path("movie.mp4"),
+                "ffprobe",
+                500,
+                520,
+            )
+
+        self.assertEqual(len(points), 1)
+        self.assertEqual(points[0]["exact_time"], "203/400")
+        self.assertEqual(points[0]["time_ms"], 508)
+
     def test_probe_frame_points_handles_nonzero_container_start(self):
         clock_payload = {
             "streams": [{"time_base": "1/1000"}],
