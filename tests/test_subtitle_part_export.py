@@ -263,6 +263,34 @@ class SubtitlePartExportTests(unittest.TestCase):
                     [(0, 5_000), (4_999, 10_000)],
                 )
 
+    def test_write_srt_parts_rejects_incomplete_full_duration(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = self._source_srt(root)
+
+            with self.assertRaisesRegex(ValueError, "tidak menutup durasi video"):
+                write_srt_parts(
+                    source,
+                    root / "out-short",
+                    "Film",
+                    [(0, 5_000), (5_000, 9_999)],
+                    expected_duration_ms=10_000,
+                )
+
+    def test_write_srt_parts_rejects_full_export_not_starting_at_zero(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = self._source_srt(root)
+
+            with self.assertRaisesRegex(ValueError, "harus dimulai"):
+                write_srt_parts(
+                    source,
+                    root / "out-offset",
+                    "Film",
+                    [(1, 5_000), (5_000, 10_000)],
+                    expected_duration_ms=10_000,
+                )
+
     def test_write_srt_parts_creates_matching_part_names(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
