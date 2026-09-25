@@ -212,6 +212,31 @@ class GeminiExactFrameAuthorityTests(unittest.TestCase):
 
         self.assertEqual(points, [508])
 
+    def test_probe_frame_timestamps_rounds_508_5_up_to_509(self):
+        payload = {
+            "frames": [{
+                "best_effort_timestamp_time": "0.5085",
+            }],
+        }
+        fake = type("Result", (), {
+            "returncode": 0,
+            "stdout": __import__("json").dumps(payload),
+            "stderr": "",
+        })()
+
+        with patch(
+            "minicut_agent.frame_resolver.run_text",
+            return_value=fake,
+        ):
+            points = probe_frame_timestamps(
+                Path("movie.mp4"),
+                "ffprobe",
+                500,
+                520,
+            )
+
+        self.assertEqual(points, [509])
+
     def test_probe_frame_points_preserves_rational_pts(self):
         payload = {
             "streams": [{"time_base": "1/24000"}],
