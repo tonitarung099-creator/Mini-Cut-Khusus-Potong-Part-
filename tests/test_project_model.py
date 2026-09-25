@@ -58,6 +58,28 @@ class MediaDurationRoundingTests(unittest.TestCase):
 
         self.assertEqual(media["duration_ms"], 11_000)
 
+    def test_probe_media_uses_half_up_not_bankers_rounding(self):
+        payload = {
+            "format": {"duration": "10.9985"},
+            "streams": [{
+                "codec_type": "video",
+                "codec_name": "h264",
+                "width": 1920,
+                "height": 1080,
+                "avg_frame_rate": "24/1",
+            }],
+        }
+        fake = type("Result", (), {
+            "returncode": 0,
+            "stdout": json.dumps(payload),
+            "stderr": "",
+        })()
+
+        with patch("minicut_agent.core.run_text", return_value=fake):
+            media = probe_media(Path("movie.mp4"), "ffprobe")
+
+        self.assertEqual(media["duration_ms"], 10_999)
+
 
 class FastExportNamingTests(unittest.TestCase):
     def test_fast_export_starts_part_number_at_one(self):
@@ -253,6 +275,23 @@ class SmartCutExactPtsTests(unittest.TestCase):
         )
 
 
+    def test_smartcut_rejects_exact_pts_that_rounds_to_different_timeline_ms(self):
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "PTS exact cut tidak cocok dengan timestamp timeline",
+            ):
+                export_segments_smartcut(
+                    "smartcut",
+                    Path(td) / "movie.mp4",
+                    Path(td) / "parts",
+                    "movie",
+                    [1_000],
+                    2_000,
+                    cut_exact_times=["10019/10000"],
+                )
+
+
 class SrtExportIntegrationTests(unittest.TestCase):
     def test_fast_export_installs_matching_srt_parts_with_zero_based_timing(self):
         class SuccessProc:
@@ -437,13 +476,13 @@ class SrtExportIntegrationTests(unittest.TestCase):
                     "movie",
                     [42],
                     100,
-                    cut_exact_times=["41/1000"],
+                    cut_exact_times=["83/2000"],
                     srt_path=srt,
                 )
 
             part2 = (out / "movie_Part-02.srt").read_text(encoding="utf-8")
             self.assertIn(
-                "00:00:00,000 --> 00:00:00,009\nframe boundary",
+                "00:00:00,000 --> 00:00:00,008\nframe boundary",
                 part2,
             )
 
