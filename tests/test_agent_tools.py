@@ -641,6 +641,8 @@ class BridgeUndoTests(unittest.TestCase):
         self.assertTrue(call.event.is_set())
         self.assertFalse(call.result["ok"])
         self.assertEqual(host.undo_stack, [])
+        self.assertTrue(host.bridge_state["subtitle"]["required_for_export"])
+        self.assertFalse(host.bridge_state["subtitle"]["loaded"])
 
 
 class _StoppedWorker:
