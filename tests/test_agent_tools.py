@@ -383,6 +383,86 @@ class WorkerFinalizationRaceTests(unittest.TestCase):
                 host.tool_export_all()
 
 
+class MandatorySubtitleExportTests(unittest.TestCase):
+    def test_export_requires_srt_before_output_folder_is_requested(self):
+        import tempfile
+        from pathlib import Path
+
+        class ModeStub:
+            def currentData(self):
+                return "fast"
+
+            def findData(self, _value):
+                return -1
+
+            def setCurrentIndex(self, _index):
+                pass
+
+        class Host:
+            _require_tool_project_ready = MiniCutWindow._require_tool_project_ready
+            _require_tool_media_ready = MiniCutWindow._require_tool_media_ready
+            tool_export_all = MiniCutWindow.tool_export_all
+
+            def _choose_srt(self):
+                self.srt_picker_called = True
+                return False
+
+            def _log(self, _text):
+                pass
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "movie.mp4"
+            source.write_bytes(b"video")
+
+            host = Host()
+            host.model = ProjectModel()
+            host.model.source = source
+            host.model.duration_ms = 1_000
+            host.analyze_worker = None
+            host.film_cut_worker = None
+            host.export_worker = None
+            host.srt_path = None
+            host._srt_project_reference = None
+            host._srt_auto_disabled = False
+            host._srt_user_disabled = False
+            host.srt_picker_called = False
+            host.export_mode = ModeStub()
+
+            with patch("minicut_agent.ui.find_tool", return_value="ffmpeg"), patch(
+                "minicut_agent.ui.QFileDialog.getExistingDirectory"
+            ) as folder_picker:
+                with self.assertRaisesRegex(RuntimeError, "wajib menyertakan SRT"):
+                    host.tool_export_all()
+
+            self.assertTrue(host.srt_picker_called)
+            folder_picker.assert_not_called()
+
+
+    def test_agent_state_marks_srt_as_required(self):
+        import tempfile
+        from pathlib import Path
+
+        class Host:
+            _state_with_subtitle = MiniCutWindow._state_with_subtitle
+            tool_get_state = MiniCutWindow.tool_get_state
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "movie.mp4"
+            source.write_bytes(b"video")
+
+            host = Host()
+            host.model = ProjectModel()
+            host.model.source = source
+            host.model.duration_ms = 1_000
+            host.srt_path = None
+
+            state = host.tool_get_state()["state"]["subtitle"]
+
+        self.assertTrue(state["required_for_export"])
+        self.assertTrue(state["required_for_film_cut"])
+        self.assertFalse(state["loaded"])
+
+
 class SubtitleProjectDirtyTests(unittest.TestCase):
     def test_clearing_subtitle_marks_loaded_project_dirty(self):
         class Host:
