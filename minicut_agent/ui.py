@@ -939,8 +939,10 @@ class MiniCutWindow(QMainWindow):
         self.srt_edit.setReadOnly(True)
         self.srt_edit.setPlaceholderText("Belum ada SRT")
         self.srt_btn = QPushButton("Pilih SRT")
-        self.srt_clear_btn = QPushButton("Lepas")
-        self.srt_clear_btn.setToolTip("Lepas SRT dan ekspor video tanpa subtitle.")
+        self.srt_clear_btn = QPushButton("Ganti SRT")
+        self.srt_clear_btn.setToolTip(
+            "Pilih SRT pengganti. Ekspor MiniCut selalu wajib menyertakan SRT."
+        )
         srt_layout.addWidget(self.srt_edit, 1)
         srt_layout.addWidget(self.srt_btn)
         srt_layout.addWidget(self.srt_clear_btn)
@@ -1046,7 +1048,7 @@ class MiniCutWindow(QMainWindow):
         layout.addLayout(review_actions)
 
         self.srt_btn.clicked.connect(self._choose_srt)
-        self.srt_clear_btn.clicked.connect(self._clear_srt)
+        self.srt_clear_btn.clicked.connect(self._choose_srt)
         self.gemini_manage_btn.clicked.connect(self._open_gemini_manager)
         self.gemini_key_combo.currentIndexChanged.connect(self._film_key_changed)
         self.gemini_model_combo.currentIndexChanged.connect(self._refresh_gemini_key_views)
@@ -2380,7 +2382,7 @@ class MiniCutWindow(QMainWindow):
         self._gemini_chat_attempted_key_ids = {str(key_id)}
         self._gemini_chat_retry_payload = {
             "text": text,
-            "state": self.model.state(),
+            "state": self._state_with_subtitle(),
             "history": history_for_api,
             "tool_manifest": self.registry.manifest(),
         }
@@ -2637,8 +2639,8 @@ class MiniCutWindow(QMainWindow):
                 self.film_preview_btn.setEnabled(False)
         if hasattr(self, "film_status_label"):
             self.film_status_label.setText(
-                "SRT dilepas. Ekspor berikutnya video-only; "
-                "pilih SRT lagi sebelum Analisis Film."
+                "SRT dilepas. Ekspor tidak dapat berjalan tanpa SRT; "
+                "pilih SRT lagi sebelum Analisis Film atau ekspor."
             )
         self._log("Subtitle dilepas dari proyek aktif.")
 
@@ -3214,8 +3216,23 @@ class MiniCutWindow(QMainWindow):
                 "Buka kembali video/proyek dan pilih file sumber yang benar."
             )
 
+    def _state_with_subtitle(self) -> dict:
+        state = self.model.state()
+        active_srt = (
+            self.srt_path.resolve()
+            if self.srt_path is not None and self.srt_path.is_file()
+            else None
+        )
+        state["subtitle"] = {
+            "required_for_export": True,
+            "required_for_film_cut": True,
+            "loaded": active_srt is not None,
+            "path": str(active_srt) if active_srt is not None else None,
+        }
+        return state
+
     def tool_get_state(self):
-        return {"ok": True, "state": self.model.state()}
+        return {"ok": True, "state": self._state_with_subtitle()}
 
     def tool_open_video(self):
         """Open the normal video picker from Gemini chat."""
@@ -3468,67 +3485,75 @@ class MiniCutWindow(QMainWindow):
                     "MiniCut SmartCut tidak ditemukan. Gunakan paket aplikasi lengkap "
                     "atau pilih Fast Copy."
                 )
+        export_srt: Path | None = None
+
+        # Ekspor MiniCut selalu wajib membawa SRT. Coba pakai SRT aktif,
+        # referensi proyek, lalu file dengan nama yang sama di samping video.
+        subtitle_candidates: list[Path] = []
+        if self.srt_path is not None:
+            subtitle_candidates.append(self.srt_path)
+        if self._srt_project_reference is not None:
+            subtitle_candidates.append(self._srt_project_reference)
+        subtitle_candidates.append(self.model.source.with_suffix(".srt"))
+
+        seen_subtitles: set[Path] = set()
+        for candidate in subtitle_candidates:
+            resolved = Path(candidate).resolve()
+            if resolved in seen_subtitles:
+                continue
+            seen_subtitles.add(resolved)
+            if not resolved.is_file():
+                continue
+            try:
+                SubtitleTrack.load(resolved)
+            except Exception as exc:
+                self._log(
+                    "SRT kandidat tidak dapat dipakai untuk ekspor: "
+                    + str(resolved)
+                    + " · "
+                    + str(exc)
+                )
+                continue
+            export_srt = resolved
+            self.srt_path = resolved
+            self._srt_project_reference = resolved
+            self._srt_auto_disabled = False
+            self._srt_user_disabled = False
+            if hasattr(self, "srt_edit"):
+                self.srt_edit.setText(str(resolved))
+            break
+
+        if export_srt is None:
+            # Baik tombol UI maupun perintah Gemini berakhir di tool ini,
+            # jadi dialog SRT wajib muncul dari satu gerbang ekspor yang sama.
+            if not self._choose_srt():
+                raise RuntimeError(
+                    "Ekspor wajib menyertakan SRT. Pilih file SRT terlebih dahulu."
+                )
+            if self.srt_path is None or not self.srt_path.is_file():
+                raise RuntimeError(
+                    "Ekspor wajib menyertakan SRT yang valid."
+                )
+            export_srt = self.srt_path.resolve()
+
+        try:
+            SubtitleTrack.load(export_srt)
+        except Exception as exc:
+            raise RuntimeError(
+                "SRT tidak valid dan ekspor belum dimulai: " + str(exc)
+            ) from exc
+
+        self.srt_path = export_srt
+        self._srt_project_reference = export_srt
+        self._srt_auto_disabled = False
+        self._srt_user_disabled = False
+        if hasattr(self, "srt_edit"):
+            self.srt_edit.setText(str(export_srt))
+
         parent = QFileDialog.getExistingDirectory(self, "Pilih folder hasil ekspor")
         if not parent:
             return {"ok": False, "cancelled": True}
         out_dir = Path(parent) / (self.model.source.stem + "_Parts")
-
-        export_srt = None
-        if (
-            self.srt_path is None
-            and self._srt_project_reference is not None
-            and not self._srt_user_disabled
-        ):
-            if self._srt_project_reference.is_file():
-                try:
-                    SubtitleTrack.load(self._srt_project_reference)
-                except Exception as exc:
-                    raise RuntimeError(
-                        "SRT proyek ditemukan kembali tetapi tidak valid: "
-                        + str(exc)
-                    ) from exc
-                self.srt_path = self._srt_project_reference.resolve()
-                self._srt_auto_disabled = False
-                if hasattr(self, "srt_edit"):
-                    self.srt_edit.setText(str(self.srt_path))
-            else:
-                raise RuntimeError(
-                    "SRT yang tersimpan di proyek belum ditemukan: "
-                    + str(self._srt_project_reference)
-                    + ". Pilih ulang SRT atau tekan Lepas untuk ekspor video-only."
-                )
-
-        if self.srt_path is not None:
-            if not self.srt_path.is_file():
-                raise RuntimeError(
-                    "SRT yang dipilih sudah tidak ditemukan. "
-                    "Pilih ulang SRT atau hapus pilihan subtitle sebelum ekspor."
-                )
-            export_srt = self.srt_path.resolve()
-        elif not self._srt_auto_disabled:
-            auto_srt = self.model.source.with_suffix(".srt")
-            if auto_srt.is_file():
-                try:
-                    SubtitleTrack.load(auto_srt)
-                except Exception as exc:
-                    self._srt_auto_disabled = True
-                    self._log(
-                        "SRT otomatis diabaikan saat ekspor karena tidak valid: "
-                        + str(exc)
-                    )
-                else:
-                    export_srt = auto_srt.resolve()
-                    self.srt_path = export_srt
-                    if hasattr(self, "srt_edit"):
-                        self.srt_edit.setText(str(export_srt))
-
-        if export_srt is not None:
-            try:
-                SubtitleTrack.load(export_srt)
-            except Exception as exc:
-                raise RuntimeError(
-                    "SRT tidak valid dan ekspor belum dimulai: " + str(exc)
-                ) from exc
 
         self.export_worker = ExportWorker(
             ffmpeg,
@@ -3548,7 +3573,7 @@ class MiniCutWindow(QMainWindow):
         self.export_worker.failed.connect(self._export_failed)
         self.export_worker.cancelled.connect(self._export_cancelled)
         self.progress.setValue(0)
-        subtitle_suffix = " + SRT per part" if export_srt else ""
+        subtitle_suffix = " + SRT per part"
         self.status.setText(
             ("SmartCut frame-accurate" if mode == "smartcut" else "Fast Copy")
             + subtitle_suffix
@@ -3562,18 +3587,19 @@ class MiniCutWindow(QMainWindow):
             )
             + subtitle_suffix
         )
-        if export_srt:
-            self._log(
-                "Subtitle ekspor: "
-                + str(export_srt)
-                + " · setiap part di-reset mulai 00:00:00,000."
-            )
+        self._log(
+            "Subtitle ekspor wajib: "
+            + str(export_srt)
+            + " · setiap part di-reset mulai 00:00:00,000."
+        )
         self.export_worker.start()
         return {
             "ok": True,
             "started": True,
             "mode": mode,
             "output_dir": str(out_dir),
+            "subtitle": str(export_srt),
+            "subtitle_required": True,
             "stop_plan": True,
         }
 
