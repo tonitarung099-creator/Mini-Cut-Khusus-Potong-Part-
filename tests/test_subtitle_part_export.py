@@ -208,6 +208,61 @@ class SubtitlePartExportTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "tidak berisi cue|Timestamp"):
                 SubtitleTrack.load(prefixed)
 
+    def test_cue_spanning_multiple_boundaries_is_clipped_to_every_matching_part(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "long.srt"
+            path.write_text(
+                "1\n"
+                "00:00:04,000 --> 00:00:11,000\n"
+                "Dialog panjang\n",
+                encoding="utf-8",
+            )
+            track = SubtitleTrack.load(path)
+
+            part1 = track.to_srt_range(0, 5_000)
+            part2 = track.to_srt_range(5_000, 10_000)
+            part3 = track.to_srt_range(10_000, 15_000)
+
+            self.assertIn(
+                "00:00:04,000 --> 00:00:05,000\nDialog panjang",
+                part1,
+            )
+            self.assertIn(
+                "00:00:00,000 --> 00:00:05,000\nDialog panjang",
+                part2,
+            )
+            self.assertIn(
+                "00:00:00,000 --> 00:00:01,000\nDialog panjang",
+                part3,
+            )
+
+    def test_write_srt_parts_rejects_gap_between_parts(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = self._source_srt(root)
+
+            with self.assertRaisesRegex(ValueError, "tidak kontinu.*gap"):
+                write_srt_parts(
+                    source,
+                    root / "out-gap",
+                    "Film",
+                    [(0, 5_000), (5_001, 10_000)],
+                )
+
+    def test_write_srt_parts_rejects_overlap_between_parts(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = self._source_srt(root)
+
+            with self.assertRaisesRegex(ValueError, "tidak kontinu.*overlap"):
+                write_srt_parts(
+                    source,
+                    root / "out-overlap",
+                    "Film",
+                    [(0, 5_000), (4_999, 10_000)],
+                )
+
     def test_write_srt_parts_creates_matching_part_names(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
