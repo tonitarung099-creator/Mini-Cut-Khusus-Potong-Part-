@@ -154,6 +154,36 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
             "stop_plan": True,
         }
 
+    def tool_cancel_film_cut(self):
+        """Cancel even during the short QThread start/finalization race window."""
+        worker = getattr(self, "film_cut_worker", None)
+        requested = worker is not None
+        if requested:
+            cancel = getattr(worker, "cancel", None)
+            if callable(cancel):
+                cancel()
+            if hasattr(self, "film_cancel_btn"):
+                self.film_cancel_btn.setEnabled(False)
+            if hasattr(self, "film_status_label"):
+                self.film_status_label.setText(
+                    "Membatalkan setelah langkah aktif selesai…"
+                )
+        return {"ok": True, "cancel_requested": requested}
+
+    def tool_cancel_export(self):
+        """Cancel export even before QThread.isRunning() flips to True."""
+        worker = getattr(self, "export_worker", None)
+        requested = worker is not None
+        if requested:
+            cancel = getattr(worker, "cancel", None)
+            if callable(cancel):
+                cancel()
+            if hasattr(self, "status"):
+                self.status.setText(
+                    "Membatalkan ekspor setelah proses aktif selesai…"
+                )
+        return {"ok": True, "cancel_requested": requested}
+
     def tool_add_cut(self, time_ms):
         self._require_tool_media_ready()
         if not self.model.source:
@@ -266,45 +296,92 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
         if len(self._gemini_chat_history_data) > int(size):
             del self._gemini_chat_history_data[int(size):]
 
-    def _send_gemini_chat(self):
-        """Handle explicit cut lists locally, leaving other chat to Gemini.
+    def _append_local_user_message(self, text: str) -> None:
+        """Show a locally handled command without adding it to model history."""
+        history_size = len(self._gemini_chat_history_data)
+        self._append_gemini_chat("user", text)
+        self._trim_model_history_from(history_size)
+        self.gemini_chat_input.clear()
 
-        A pasted list such as ``Titik Potong 1 : 00:14:55.500`` is deterministic
-        input. It does not need Gemini to reinterpret timestamps, and each target
-        can go straight through the local camera-boundary resolver.
-        """
+    def _send_gemini_chat(self):
+        """Handle explicit cuts/cancellation locally, leaving other chat to Gemini."""
         text = self.gemini_chat_input.toPlainText().strip()
         if not text:
+            return
+
+        low = " ".join(text.lower().split())
+        cancel_words = ("batalkan", "batal", "cancel", "stop", "hentikan")
+        wants_cancel = any(word in low for word in cancel_words)
+        film_worker = getattr(self, "film_cut_worker", None)
+        export_worker = getattr(self, "export_worker", None)
+
+        # A worker object exists from scheduling until its final callback. Do
+        # not rely on isRunning(): immediately after QThread.start() it can be
+        # False even though the job is about to run.
+        if film_worker is not None:
+            if wants_cancel and any(
+                hint in low
+                for hint in ("film cut", "ai film", "analisis film", "analisa film")
+            ):
+                self._append_local_user_message(text)
+                result = self.tool_cancel_film_cut()
+                self._append_gemini_chat(
+                    "system",
+                    "Permintaan pembatalan AI Film Cut dikirim."
+                    if result.get("cancel_requested")
+                    else "AI Film Cut tidak sedang berjalan.",
+                )
+                return
+            from PySide6.QtWidgets import QMessageBox
+            from . import APP_TITLE
+            QMessageBox.information(
+                self,
+                APP_TITLE,
+                "AI Film Cut sedang berjalan atau memfinalisasi hasil. "
+                "Kamu tetap bisa mengetik 'batalkan AI Film Cut'.",
+            )
+            return
+
+        if export_worker is not None:
+            if wants_cancel and any(
+                hint in low for hint in ("ekspor", "export", "render")
+            ):
+                self._append_local_user_message(text)
+                result = self.tool_cancel_export()
+                self._append_gemini_chat(
+                    "system",
+                    "Permintaan pembatalan ekspor dikirim."
+                    if result.get("cancel_requested")
+                    else "Ekspor tidak sedang berjalan.",
+                )
+                return
+            from PySide6.QtWidgets import QMessageBox
+            from . import APP_TITLE
+            QMessageBox.information(
+                self,
+                APP_TITLE,
+                "Ekspor sedang berjalan atau memfinalisasi hasil. "
+                "Kamu tetap bisa mengetik 'batalkan ekspor'.",
+            )
             return
 
         timestamps = extract_manual_timestamps(text)
         local_manual_cut = looks_like_manual_cut(text) and bool(timestamps)
         busy = self._manual_cut_workers_busy()
         if not local_manual_cut or busy:
-            # Base chat appends local cancellation commands and failed setup
-            # attempts to the same hidden history used for future Gemini calls.
-            # If no Gemini worker is launched, or another process already owned
-            # the app, any new history entry was handled locally and must not be
-            # replayed to the model on the next user message.
+            # Base chat appends failed setup attempts to the same hidden history
+            # used for future Gemini calls. If no Gemini worker is launched, any
+            # new history entry must not be replayed to the model on retry.
             history_size = len(self._gemini_chat_history_data)
             result = super()._send_gemini_chat()
             if (
                 len(self._gemini_chat_history_data) > history_size
-                and (
-                    busy
-                    or getattr(self, "gemini_chat_worker", None) is None
-                )
+                and getattr(self, "gemini_chat_worker", None) is None
             ):
                 self._trim_model_history_from(history_size)
             return result
 
-        history_size = len(self._gemini_chat_history_data)
-        self._append_gemini_chat("user", text)
-        # This command is executed locally below. Keep it in the visible chat,
-        # but remove it from the hidden model history immediately so a future
-        # unrelated Gemini request cannot execute the same cut list again.
-        self._trim_model_history_from(history_size)
-        self.gemini_chat_input.clear()
+        self._append_local_user_message(text)
 
         if not self.model.source:
             self._append_gemini_chat(
