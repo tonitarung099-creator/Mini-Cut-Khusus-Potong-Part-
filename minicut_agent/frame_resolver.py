@@ -30,6 +30,62 @@ def probe_frame_timestamps(
     ]
 
 
+def _probe_container_start_time(source: Path, ffprobe: str) -> Fraction:
+    cmd = [
+        ffprobe,
+        "-v", "error",
+        "-show_entries", "format=start_time",
+        "-of", "json",
+        str(source),
+    ]
+    result = run_text(cmd)
+    if result.returncode != 0:
+        raise RuntimeError(
+            result.stderr.strip() or "Clock media tidak dapat dibaca."
+        )
+    try:
+        return Fraction(
+            str((json.loads(result.stdout or "{}").get("format") or {}).get("start_time") or "0")
+        )
+    except Exception:
+        return Fraction(0)
+
+
+def probe_keyframes_relative(source: Path, ffprobe: str) -> list[int]:
+    """Return keyframes relative to MiniCut's zero-based media timeline."""
+    start_time = _probe_container_start_time(source, ffprobe)
+    cmd = [
+        ffprobe,
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-skip_frame", "nokey",
+        "-show_entries", "frame=best_effort_timestamp_time",
+        "-of", "csv=p=0",
+        str(source),
+    ]
+    result = run_text(cmd)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "Keyframe tidak dapat dibaca.")
+
+    points: list[int] = []
+    for line in result.stdout.splitlines():
+        raw = line.strip().split(",", 1)[0]
+        if not raw or raw == "N/A":
+            continue
+        try:
+            relative = Fraction(raw) - start_time
+        except (ValueError, ZeroDivisionError):
+            continue
+        if relative < 0:
+            continue
+        points.append(fraction_seconds_to_ms(relative))
+
+    points = sorted(set(points))
+    if not points:
+        raise RuntimeError("Tidak ada keyframe yang ditemukan.")
+    return points
+
+
 def probe_frame_points(
     source: Path,
     ffprobe: str,
