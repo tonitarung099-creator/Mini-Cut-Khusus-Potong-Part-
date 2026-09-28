@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
+from . import workers as workers_module
 from .camera_boundary import resolve_camera_boundary
 from .core import clock_text, find_tool, parse_time_ms
+from .frame_resolver import probe_keyframes_relative
 from .manual_commands import extract_manual_timestamps, looks_like_manual_cut
 from .ui import MiniCutWindow as BaseMiniCutWindow
 
@@ -16,6 +18,11 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
     """
 
     def __init__(self):
+        # AnalyzeWorker historically imported core.probe_keyframes directly.
+        # The active camera-aware app uses the relative-clock resolver so
+        # TS/MTS/remuxed media with non-zero container start_time do not shift
+        # Fast Copy/keyframe snapping away from the UI timeline.
+        workers_module.probe_keyframes = probe_keyframes_relative
         super().__init__()
         # The base registry is created before this subclass gets control. Keep
         # the same registry/host, but make its manifest truthful for Gemini and
