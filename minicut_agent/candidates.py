@@ -4,10 +4,11 @@ import math
 import re
 import subprocess
 from dataclasses import asdict, dataclass
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from .core import creation_flags
+from .core import creation_flags, fraction_seconds_to_ms
 from .subtitles import SubtitleTrack, format_ms
 
 _PTS_RE = re.compile(r"pts_time:(?P<t>\d+(?:\.\d+)?)")
@@ -65,9 +66,27 @@ def detect_visual_boundaries(
     start_ms: int,
     end_ms: int,
     scene_threshold: float = 0.27,
+    dedupe_tolerance_ms: int = 350,
+    seek_preroll_ms: int = 0,
 ) -> list[int]:
-    start_s = max(0, start_ms) / 1000
-    duration_s = max(0.2, end_ms - start_ms) / 1000
+    """Detect visual shot changes inside a timeline window.
+
+    ``seek_preroll_ms`` decodes a short lead-in before the requested window.
+    This is important for TS/MTS and sparse-GOP material: input seeking can land
+    on the first frame of a new shot, leaving FFmpeg's scene detector without a
+    previous frame to compare and silently missing the camera change.
+
+    ``dedupe_tolerance_ms`` remains 350 ms by default for the legacy semantic
+    candidate path. Exact manual camera-boundary cutting passes a near-zero
+    tolerance so rapid montage cuts are never averaged into a fake midpoint.
+    """
+    start_ms = max(0, int(start_ms))
+    end_ms = max(start_ms + 1, int(end_ms))
+    preroll_ms = max(0, int(seek_preroll_ms))
+    scan_start_ms = max(0, start_ms - preroll_ms)
+
+    start_s = scan_start_ms / 1000
+    duration_s = max(0.2, end_ms - scan_start_ms) / 1000
     filt = f"select='gt(scene,{scene_threshold})',showinfo"
     cmd = [
         ffmpeg, "-hide_banner", "-loglevel", "info",
@@ -76,12 +95,21 @@ def detect_visual_boundaries(
         "-vf", filt, "-an", "-f", "null", "-"
     ]
     lines = _run_ffmpeg_lines(cmd)
-    result = []
+    result: list[int] = []
     for line in lines:
         m = _PTS_RE.search(line)
-        if m:
-            result.append(start_ms + int(float(m.group("t")) * 1000))
-    return _dedupe(result, 350)
+        if not m:
+            continue
+        try:
+            relative_ms = fraction_seconds_to_ms(Fraction(m.group("t")))
+        except (ValueError, ZeroDivisionError):
+            continue
+        point_ms = scan_start_ms + relative_ms
+        # Preroll frames are context only. Never leak a scene boundary outside
+        # the caller's requested search window.
+        if start_ms <= point_ms <= end_ms:
+            result.append(point_ms)
+    return _dedupe(result, max(0, int(dedupe_tolerance_ms)))
 
 def detect_silence_boundaries(
     ffmpeg: str,
