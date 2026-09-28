@@ -7,12 +7,21 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
+
 @dataclass
 class BridgeCall:
     tool: str
     args: dict[str, Any]
     event: threading.Event = field(default_factory=threading.Event)
     result: dict[str, Any] = field(default_factory=dict)
+    # A bridge request may time out while it is still queued behind another
+    # long-running GUI action. Without an explicit cancellation marker, the GUI
+    # would execute that stale request later even though the caller already saw
+    # a failure and may have retried it.
+    cancelled: threading.Event = field(default_factory=threading.Event)
+    started: threading.Event = field(default_factory=threading.Event)
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
 
 class LocalBridge:
     def __init__(
@@ -74,8 +83,14 @@ class LocalBridge:
                     call = BridgeCall(tool=tool, args=args)
                     outer.calls.put(call)
                     if outer.stopping and not call.event.is_set():
-                        call.result.update({"ok": False, "error": "MiniCut sedang ditutup."})
-                        call.event.set()
+                        with call.lock:
+                            call.cancelled.set()
+                            call.result.update({
+                                "ok": False,
+                                "cancelled": True,
+                                "error": "MiniCut sedang ditutup.",
+                            })
+                            call.event.set()
                     long_running_tools = {
                         "open_video", "open_project", "choose_subtitle",
                         "save_project", "export_all",
@@ -87,8 +102,23 @@ class LocalBridge:
                     }
                     wait_seconds = 300 if tool in long_running_tools else 60
                     if not call.event.wait(timeout=wait_seconds):
+                        with call.lock:
+                            if not call.event.is_set():
+                                call.cancelled.set()
+                                call.result.clear()
+                                call.result.update({
+                                    "ok": False,
+                                    "cancelled": True,
+                                    "error": (
+                                        "MiniCut tidak merespons tool dalam "
+                                        f"{wait_seconds} detik; request dibatalkan "
+                                        "agar tidak dieksekusi terlambat."
+                                    ),
+                                })
+                                call.event.set()
                         raise TimeoutError(
-                            f"MiniCut tidak merespons tool dalam {wait_seconds} detik."
+                            f"MiniCut tidak merespons tool dalam {wait_seconds} detik. "
+                            "Request dibatalkan; jangan anggap aksi berhasil."
                         )
                     status = 200 if call.result.get("ok", False) else 400
                     self._send(status, call.result)
@@ -100,7 +130,11 @@ class LocalBridge:
 
         self.httpd = ThreadingHTTPServer((self.host, self.port), Handler)
         self.httpd.daemon_threads = True
-        self.thread = threading.Thread(target=self.httpd.serve_forever, name="MiniCutLocalBridge", daemon=True)
+        self.thread = threading.Thread(
+            target=self.httpd.serve_forever,
+            name="MiniCutLocalBridge",
+            daemon=True,
+        )
         self.thread.start()
 
     def _cancel_pending_calls(self) -> None:
@@ -109,8 +143,15 @@ class LocalBridge:
                 call = self.calls.get_nowait()
             except queue.Empty:
                 break
-            call.result.update({"ok": False, "error": "MiniCut sedang ditutup."})
-            call.event.set()
+            with call.lock:
+                call.cancelled.set()
+                call.result.clear()
+                call.result.update({
+                    "ok": False,
+                    "cancelled": True,
+                    "error": "MiniCut sedang ditutup.",
+                })
+                call.event.set()
 
     def stop(self) -> None:
         self.stopping = True
