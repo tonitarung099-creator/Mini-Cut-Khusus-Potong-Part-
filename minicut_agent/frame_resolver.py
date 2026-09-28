@@ -10,6 +10,41 @@ from .core import fraction_seconds_to_ms, run_text
 from .subtitles import SubtitleTrack, format_ms
 
 
+def _fraction_text(value: Fraction) -> str:
+    with localcontext() as ctx:
+        ctx.prec = 30
+        return format(
+            Decimal(value.numerator) / Decimal(value.denominator),
+            "f",
+        )
+
+
+def _probe_frame_timestamp_payload(
+    source: Path,
+    ffprobe: str,
+    interval_start: Fraction,
+    interval_end: Fraction,
+) -> dict[str, Any]:
+    cmd = [
+        ffprobe,
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-read_intervals",
+        f"{_fraction_text(interval_start)}%{_fraction_text(interval_end)}",
+        "-show_frames",
+        "-show_format",
+        "-show_entries", "frame=best_effort_timestamp_time:format=start_time",
+        "-of", "json",
+        str(source),
+    ]
+    result = run_text(cmd)
+    if result.returncode != 0:
+        raise RuntimeError(
+            result.stderr.strip() or "Frame timestamp tidak dapat dibaca."
+        )
+    return json.loads(result.stdout or "{}")
+
+
 def probe_frame_timestamps(
     source: Path,
     ffprobe: str,
@@ -18,16 +53,57 @@ def probe_frame_timestamps(
 ) -> list[int]:
     """Return real frame timestamps on MiniCut's zero-based UI timeline.
 
-    Keep this compatibility helper on the same clock as ``probe_frame_points``.
-    The old implementation read ``best_effort_timestamp_time`` directly and
-    therefore treated container timestamps as UI timestamps. TS/MTS/remuxed
-    sources can start at a non-zero container PTS, shifting frame stepping and
-    semantic frame selection by that start offset.
+    This helper intentionally keeps the lightweight timestamp-only ffprobe path
+    used by frame stepping and semantic candidate selection. For normal files
+    whose container starts at zero it needs one probe, preserving the legacy
+    behavior and exact decimal rounding. If ffprobe reports a non-zero
+    ``format.start_time`` (common in TS/MTS/remuxed media), it repeats the read
+    using an absolute container interval and subtracts that start offset from
+    every returned frame timestamp.
     """
-    return [
-        int(item["time_ms"])
-        for item in probe_frame_points(source, ffprobe, start_ms, end_ms)
-    ]
+    start_ms = max(0, int(start_ms))
+    end_ms = max(start_ms + 1, int(end_ms))
+    relative_start = Fraction(start_ms, 1000)
+    relative_end = Fraction(end_ms, 1000)
+
+    data = _probe_frame_timestamp_payload(
+        source,
+        ffprobe,
+        relative_start,
+        relative_end,
+    )
+    try:
+        start_time = Fraction(
+            str((data.get("format") or {}).get("start_time") or "0")
+        )
+    except Exception:
+        start_time = Fraction(0)
+
+    # -read_intervals is interpreted on the source/container clock. Once we
+    # discover a non-zero start time, repeat the small read window at the
+    # correct absolute position. The first read is only clock discovery in that
+    # case; its frames are deliberately ignored.
+    if start_time != 0:
+        data = _probe_frame_timestamp_payload(
+            source,
+            ffprobe,
+            start_time + relative_start,
+            start_time + relative_end,
+        )
+
+    frames: list[int] = []
+    for frame in data.get("frames", []):
+        raw = frame.get("best_effort_timestamp_time")
+        if raw in (None, "N/A"):
+            continue
+        try:
+            relative = Fraction(str(raw)) - start_time
+            ms = fraction_seconds_to_ms(relative)
+        except (TypeError, ValueError, ZeroDivisionError):
+            continue
+        if start_ms - 1000 <= ms <= end_ms + 1000:
+            frames.append(ms)
+    return sorted(set(frames))
 
 
 def _probe_container_start_time(source: Path, ffprobe: str) -> Fraction:
@@ -130,18 +206,8 @@ def probe_frame_points(
 
     absolute_start = start_time + Fraction(start_ms, 1000)
     absolute_end = start_time + Fraction(end_ms, 1000)
-    with localcontext() as ctx:
-        ctx.prec = 30
-        abs_start_text = format(
-            Decimal(absolute_start.numerator)
-            / Decimal(absolute_start.denominator),
-            "f",
-        )
-        abs_end_text = format(
-            Decimal(absolute_end.numerator)
-            / Decimal(absolute_end.denominator),
-            "f",
-        )
+    abs_start_text = _fraction_text(absolute_start)
+    abs_end_text = _fraction_text(absolute_end)
 
     frame_cmd = [
         ffprobe,
