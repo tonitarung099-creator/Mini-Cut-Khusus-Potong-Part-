@@ -4,7 +4,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from minicut_agent.frame_resolver import probe_frame_timestamps
+from minicut_agent.frame_resolver import (
+    probe_frame_timestamps,
+    probe_keyframes_relative,
+)
 
 
 class FrameResolverStartTimeTests(unittest.TestCase):
@@ -46,6 +49,28 @@ class FrameResolverStartTimeTests(unittest.TestCase):
         frame_cmd = runner.call_args_list[1].args[0]
         interval = frame_cmd[frame_cmd.index("-read_intervals") + 1]
         self.assertEqual(interval, "2.5%2.6")
+
+    def test_keyframes_are_relative_to_nonzero_container_start(self):
+        clock = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps({"format": {"start_time": "1.500"}}),
+            stderr="",
+        )
+        keyframes = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="1.500000\n3.500000\n5.500000\n",
+            stderr="",
+        )
+
+        with patch(
+            "minicut_agent.frame_resolver.run_text",
+            side_effect=[clock, keyframes],
+        ):
+            result = probe_keyframes_relative(Path("movie.ts"), "ffprobe")
+
+        self.assertEqual(result, [0, 2000, 4000])
 
 
 if __name__ == "__main__":
