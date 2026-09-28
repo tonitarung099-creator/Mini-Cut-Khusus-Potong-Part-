@@ -14,6 +14,7 @@ class _Host:
     _present_worker_labels = HardenedMiniCutWindow._present_worker_labels
     _project_switch_blockers = HardenedMiniCutWindow._project_switch_blockers
     _timeline_mutation_blockers = HardenedMiniCutWindow._timeline_mutation_blockers
+    _gemini_key_mutation_blockers = HardenedMiniCutWindow._gemini_key_mutation_blockers
     _manual_cut_workers_busy = HardenedMiniCutWindow._manual_cut_workers_busy
     _fast_copy_safety_error = HardenedMiniCutWindow._fast_copy_safety_error
 
@@ -54,6 +55,17 @@ class HardenedWindowSafetyTests(unittest.TestCase):
 
         self.assertIn("Ekspor", host._project_switch_blockers())
         self.assertIn("Ekspor", host._timeline_mutation_blockers())
+
+    def test_gemini_key_edit_remove_are_blocked_until_worker_callback_finishes(self):
+        for attr, label in (
+            ("gemini_test_worker", "Tes Gemini"),
+            ("gemini_batch_worker", "Cek Semua API"),
+            ("gemini_chat_worker", "Gemini Chat"),
+            ("film_cut_worker", "AI Film Cut"),
+        ):
+            host = _Host()
+            setattr(host, attr, _Worker())
+            self.assertIn(label, host._gemini_key_mutation_blockers())
 
     def test_fast_copy_rejects_frame_accurate_non_keyframe_timeline(self):
         host = _Host()
