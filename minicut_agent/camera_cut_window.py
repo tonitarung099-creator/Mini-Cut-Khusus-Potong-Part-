@@ -19,6 +19,14 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
         self._require_tool_media_ready()
         if not self.model.source:
             raise ValueError("Belum ada video.")
+        if getattr(self, "film_cut_worker", None) is not None:
+            raise RuntimeError(
+                "Tunggu AI Film Cut selesai dan hasilnya difinalisasi sebelum menambah cut manual."
+            )
+        if getattr(self, "export_worker", None) is not None:
+            raise RuntimeError(
+                "Tunggu ekspor selesai dan hasilnya difinalisasi sebelum menambah cut manual."
+            )
 
         requested_ms = self.model.clamp(parse_time_ms(time_ms))
         if requested_ms <= 0 or requested_ms >= self.model.duration_ms:
@@ -84,9 +92,14 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
         }
 
     def _manual_cut_workers_busy(self) -> bool:
+        # film/export workers remain non-None during their final callback window;
+        # treat that state as busy too so a late mutation cannot race finalization.
+        if getattr(self, "film_cut_worker", None) is not None:
+            return True
+        if getattr(self, "export_worker", None) is not None:
+            return True
+
         workers = (
-            getattr(self, "film_cut_worker", None),
-            getattr(self, "export_worker", None),
             getattr(self, "gemini_batch_worker", None),
             getattr(self, "gemini_test_worker", None),
             getattr(self, "gemini_chat_worker", None),
