@@ -5,12 +5,13 @@ from unittest.mock import patch
 
 from minicut_agent.camera_boundary import resolve_camera_boundary
 from minicut_agent.camera_cut_window import CameraAwareMiniCutWindow
+from minicut_agent.candidates import detect_visual_boundaries
 from minicut_agent.core import ProjectModel
 from minicut_agent.manual_commands import extract_manual_timestamps, looks_like_manual_cut
 
 
 class CameraBoundaryResolverTests(unittest.TestCase):
-    def test_prefers_nearest_camera_change_then_locks_exact_master_pts(self):
+    def test_prefers_nearest_camera_change_then_locks_first_new_shot_master_pts(self):
         points = [
             {"time_ms": 10_042, "exact_time": "251/25"},
             {"time_ms": 10_083, "exact_time": "10083/1000"},
@@ -18,7 +19,7 @@ class CameraBoundaryResolverTests(unittest.TestCase):
         with patch(
             "minicut_agent.camera_boundary.detect_visual_boundaries",
             return_value=[10_050, 11_200],
-        ), patch(
+        ) as detect, patch(
             "minicut_agent.camera_boundary.probe_frame_points",
             return_value=points,
         ):
@@ -33,10 +34,16 @@ class CameraBoundaryResolverTests(unittest.TestCase):
         self.assertTrue(result["camera_change_found"])
         self.assertFalse(result["fallback_to_nearest_frame"])
         self.assertEqual(result["raw_scene_boundary_ms"], 10_050)
-        self.assertEqual(result["time_ms"], 10_042)
-        self.assertEqual(result["exact_time"], "251/25")
-        self.assertEqual(result["shift_ms"], 42)
+        # 10.042 is closer to the rounded boundary, but it belongs to the old
+        # shot. Camera-aware cuts must start on the first frame at/after change.
+        self.assertEqual(result["time_ms"], 10_083)
+        self.assertEqual(result["exact_time"], "10083/1000")
+        self.assertEqual(result["shift_ms"], 83)
         self.assertEqual(result["search_radius_ms"], 2_000)
+        self.assertEqual(result["frame_side"], "first-frame-new-shot")
+        kwargs = detect.call_args.kwargs
+        self.assertLessEqual(kwargs["dedupe_tolerance_ms"], 1)
+        self.assertGreaterEqual(kwargs["seek_preroll_ms"], 5_000)
 
     def test_expands_search_to_four_seconds_when_first_window_has_no_cut(self):
         with patch(
@@ -84,6 +91,54 @@ class CameraBoundaryResolverTests(unittest.TestCase):
         self.assertTrue(result["fallback_to_nearest_frame"])
         self.assertEqual(result["time_ms"], 10_000)
         self.assertEqual(result["exact_time"], "10")
+        self.assertEqual(result["frame_side"], "nearest-master-frame")
+
+
+class ExactVisualDetectionTests(unittest.TestCase):
+    def test_rapid_camera_changes_are_not_averaged_into_fake_midpoint(self):
+        lines = [
+            "[Parsed_showinfo_1] n:1 pts:1 pts_time:0.100",
+            "[Parsed_showinfo_1] n:2 pts:2 pts_time:0.300",
+        ]
+        with patch(
+            "minicut_agent.candidates._run_ffmpeg_lines",
+            return_value=lines,
+        ):
+            points = detect_visual_boundaries(
+                "ffmpeg",
+                Path("movie.mp4"),
+                10_000,
+                11_000,
+                dedupe_tolerance_ms=1,
+            )
+
+        self.assertEqual(points, [10_100, 10_300])
+        self.assertNotIn(10_200, points)
+
+    def test_preroll_provides_context_but_does_not_leak_old_boundaries(self):
+        lines = [
+            "[Parsed_showinfo_1] n:1 pts:1 pts_time:4.900",
+            "[Parsed_showinfo_1] n:2 pts:2 pts_time:5.100",
+        ]
+        with patch(
+            "minicut_agent.candidates._run_ffmpeg_lines",
+            return_value=lines,
+        ) as runner:
+            points = detect_visual_boundaries(
+                "ffmpeg",
+                Path("movie.ts"),
+                10_000,
+                11_000,
+                dedupe_tolerance_ms=1,
+                seek_preroll_ms=5_000,
+            )
+
+        # scan starts at 5s, so pts_time 4.9 belongs to 9.9s and is context
+        # only; pts_time 5.1 maps to 10.1s and is inside the requested window.
+        self.assertEqual(points, [10_100])
+        cmd = runner.call_args.args[0]
+        ss_index = cmd.index("-ss")
+        self.assertEqual(cmd[ss_index + 1], "5.000")
 
 
 class CameraAwareToolTests(unittest.TestCase):
@@ -115,6 +170,8 @@ class CameraAwareToolTests(unittest.TestCase):
             host.model.source = source
             host.model.duration_ms = 120_000
             host.analyze_worker = None
+            host.film_cut_worker = None
+            host.export_worker = None
             host.export_mode = ExportModeStub()
 
             resolved = {
