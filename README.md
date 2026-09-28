@@ -4,13 +4,15 @@ Aplikasi desktop Windows untuk membagi film/video menjadi beberapa part dengan b
 
 ## Fitur utama
 
-- **Gemini Chat Command Agent** — chat tidak lagi terbatas pada format cut manual. Gemini memahami bahasa natural lalu memakai tool MiniCut untuk timeline/playback/proyek. Contoh `cut 1 jam lebih 2 menit`, `bagi jadi 8 part`, atau perintah majemuk. Untuk cut waktu spesifik, timestamp yang dikeluarkan Gemini disimpan **apa adanya** tanpa snap/frame-lock lokal.
+- **Manual Camera Boundary Cut** — timestamp manual diperlakukan sebagai target waktu. MiniCut mencari pergantian kamera/shot terdekat secara lokal pada radius awal ±2 detik, lalu memperluas sampai ±4 detik bila perlu. Boundary visual yang ditemukan dikunci ke PTS frame master rasional asli sebelum diteruskan ke SmartCut. Jika tidak ada pergantian kamera pada radius tersebut, MiniCut fallback ke frame master nyata terdekat dan memberi status fallback.
+- **Daftar titik potong tanpa API** — format seperti `Titik Potong 1 : 00:14:55.500` dapat ditempel langsung ke Chat. Jika pesan berisi daftar timestamp eksplisit, MiniCut mem-parsing daftar tersebut secara lokal dan memproses semua titik ke camera boundary tanpa menghabiskan request Gemini.
+- **Gemini Chat Command Agent** — memahami bahasa natural lalu memakai tool MiniCut untuk timeline/playback/proyek. Contoh `cut 1 jam lebih 2 menit`, `bagi jadi 8 part`, atau perintah majemuk. Perintah timestamp eksplisit yang dikenali parser lokal tidak perlu dikirim ke API.
 - **Scene Boundary Analyzer** — grid target tetap absolut (mis. 15, 30, 45, 60 menit). Boundary natural boleh bergeser, tetapi tidak menggeser target berikutnya.
 - **Contact sheet + SRT sinkron** — untuk window awal ±2 menit, MiniCut membuat contact sheet lokal sekitar 1 frame/2 detik dan mengirim SRT pada blok waktu yang sama agar Gemini memahami visual + isi percakapan bersama-sama.
 - **NO CUT / Expand** — bila visual dan dialog masih satu rangkaian, Gemini boleh memilih NO CUT. MiniCut lalu menambah pencarian sekitar +3 menit tanpa memaksa cut dan tanpa menggeser grid target berikutnya.
-- **Pemilihan frame final oleh Gemini** — setelah area boundary ditemukan, MiniCut membaca frame PTS nyata di sekitar boundary dan mengirim preview frame-frame itu ke Gemini dalam dua tahap (coarse lalu fine). MiniCut tidak memilih kandidat final secara lokal.
+- **Pemilihan frame final oleh Gemini untuk AI Film Cut** — setelah area boundary ditemukan, MiniCut membaca frame PTS nyata di sekitar boundary dan mengirim preview frame-frame itu ke Gemini dalam dua tahap (coarse lalu fine). Jalur AI Film Cut tetap terpisah dari manual camera-boundary cut.
 - **SRT wajib untuk AI Film Cut dan SmartCut** — AI Film Cut memakai SRT sinkron untuk memahami dialog. Saat mode SmartCut dipakai, ekspor wajib menghasilkan pasangan video + SRT; MiniCut memakai SRT yang sudah dipilih, referensi SRT proyek, atau `NamaVideo.srt` yang terdeteksi otomatis, dan akan meminta SRT jika belum ada yang valid. SRT dipotong menjadi `NamaVideo_Part-01.srt`, `Part-02.srt`, dst.; timestamp tiap part di-reset mulai `00:00:00,000`, dan cue yang melewati boundary diklip ke kedua part tanpa mengubah teks. **Fast Copy mengekspor video saja dan tidak memerlukan atau membuat SRT.**
-- **Gemini exact-frame authority** — pada AI Film Cut, MiniCut hanya membaca daftar PTS frame master di sekitar boundary dan menampilkannya ke Gemini. Gemini memilih frame final; PTS rasional asli disimpan sampai SmartCut sehingga tidak dibulatkan ke milidetik untuk render.
+- **Gemini exact-frame authority untuk AI Film Cut** — pada AI Film Cut, MiniCut hanya membaca daftar PTS frame master di sekitar boundary dan menampilkannya ke Gemini. Gemini memilih frame final; PTS rasional asli disimpan sampai SmartCut sehingga tidak dibulatkan ke milidetik untuk render.
 - **SmartCut Frame Accurate** — default export; meminimalkan re-encode di sekitar titik potong.
 - **Portable FFmpeg + ffprobe** — build Windows membawa tool media sendiri; pengguna ZIP tidak perlu menginstal FFmpeg atau mengatur PATH.
 - **Fast Copy** — opsi ekspor cepat berbasis keyframe, video-only tanpa SRT.
@@ -20,6 +22,39 @@ Aplikasi desktop Windows untuk membagi film/video menjadi beberapa part dengan b
 - **Gemini API Manager** — hingga 100 API key, disimpan lokal menggunakan Windows DPAPI. Jika key aktif terkena limit, MiniCut dapat berpindah otomatis ke key lain yang masih dapat dipakai tanpa mencoba key yang sama berulang kali.
 - **Cache/resume AI Film Cut** — hasil CUT, NO CUT, dan grid yang dilewati dapat dipulihkan saat failover/retry agar target selesai tidak dianalisis ulang.
 - **MCP companion + local bridge** untuk integrasi agent eksternal.
+
+## Cara kerja cut manual / daftar titik potong
+
+```text
+Timestamp target pengguna
+        ↓
+Cari pergantian kamera ±2 detik
+        ↓ tidak ditemukan
+Perluas pencarian sampai ±4 detik
+        ↓
+Pilih pergantian kamera terdekat dari target
+        ↓
+Kunci ke PTS frame master rasional asli
+        ↓
+SmartCut frame-accurate
+```
+
+Jika tidak ditemukan pergantian kamera pada radius maksimal, MiniCut tidak mengarang boundary visual. Aplikasi memakai frame master nyata terdekat dan menandainya sebagai fallback.
+
+Contoh input Chat:
+
+```text
+Samawa 2025
+===========
+Titik Potong 1 : 00:14:55.500
+Titik Potong 2 : 00:31:14.750
+Titik Potong 3 : 00:49:21.500
+Titik Potong 4 : 01:02:13.000
+Titik Potong 5 : 01:17:35.500
+Titik Potong 6 : 01:30:57.000
+```
+
+Keenam timestamp di atas adalah target. Hasil final dapat bergeser beberapa frame agar potongan terjadi tepat pada pergantian kamera.
 
 ## Cara kerja AI Film Cut
 
@@ -38,21 +73,21 @@ frame PTS master sekitar boundary ditampilkan ke Gemini
         ↓
 Gemini memilih frame master FINAL
         ↓
-timestamp Gemini diteruskan tanpa snap lokal
-        ↓
-SmartCut export pada timestamp yang sama
+PTS rasional asli diteruskan ke SmartCut
 ```
 
 Target 15 menit adalah patokan, bukan batas wajib. Perpindahan scene yang natural lebih diprioritaskan.
 
 ## Struktur
 
-- `main.py` — entry point aplikasi.
-- `minicut_agent/ui.py` — UI PySide6.
+- `main.py` — entry point aplikasi; memakai window camera-aware.
+- `minicut_agent/ui.py` — UI PySide6 dasar.
+- `minicut_agent/camera_cut_window.py` — layer UI aktif untuk manual/chat camera-boundary cut.
+- `minicut_agent/camera_boundary.py` — deteksi pergantian kamera lokal dan penguncian ke PTS master.
 - `minicut_agent/core.py` — proyek, FFmpeg, dan export.
 - `minicut_agent/preview_player.py` — playback master-direct mpv/libmpv + fallback Qt.
-- `minicut_agent/candidates.py` — utilitas kompatibilitas lama; tidak menentukan frame final AI Film Cut.
-- `minicut_agent/gemini.py` — pemahaman scene + pemilihan frame master final oleh Gemini.
+- `minicut_agent/candidates.py` — scene detection lokal dan utilitas kandidat.
+- `minicut_agent/gemini.py` — pemahaman scene + pemilihan frame master final oleh Gemini untuk AI Film Cut.
 - `minicut_agent/frame_resolver.py` — pembacaan PTS frame master dan utilitas kompatibilitas.
 - `minicut_agent/gemini_keys.py` — manager API key lokal.
 - `minicut_agent/subtitles.py` — pembacaan SRT, sinkronisasi dialog, dan ekspor SRT per part.
