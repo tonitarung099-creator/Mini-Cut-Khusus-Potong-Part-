@@ -17,7 +17,13 @@ class ManualTimestamp:
         return clock_text(self.time_ms)
 
 
-_CUT_WORDS = ("potong", "cut", "pecah", "split", "titik potong", "belah")
+# Match actual editing words/phrases, not arbitrary substrings. The previous
+# `"cut" in text` behavior could treat words such as "shortcut" as a timeline
+# mutation whenever the same message also contained a timestamp.
+_CUT_INTENT_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:titik\s+potong|potong|cut|pecah|split|belah)(?![A-Za-z0-9_])",
+    flags=re.I,
+)
 _NON_ADD_CUT_HINTS = (
     "hapus", "remove", "delete", "undo", "urungkan", "batalkan",
     "cek cut", "lihat cut", "berapa cut", "apakah ada cut",
@@ -42,7 +48,7 @@ def looks_like_manual_cut(text: str) -> bool:
     low = " ".join(str(text or "").lower().split())
     if any(hint in low for hint in _NON_ADD_CUT_HINTS):
         return False
-    return any(word in low for word in _CUT_WORDS)
+    return bool(_CUT_INTENT_RE.search(low))
 
 
 def _number(text: str | None) -> Fraction:
