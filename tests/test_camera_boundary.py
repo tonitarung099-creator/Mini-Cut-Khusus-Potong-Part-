@@ -142,7 +142,8 @@ class ExactVisualDetectionTests(unittest.TestCase):
 
 
 class CameraAwareToolTests(unittest.TestCase):
-    def test_manual_cut_keeps_requested_target_but_uses_camera_boundary_as_actual(self):
+    @staticmethod
+    def _host_class():
         class ExportModeStub:
             def __init__(self):
                 self.value = "fast"
@@ -156,11 +157,16 @@ class CameraAwareToolTests(unittest.TestCase):
         class Host:
             _require_tool_project_ready = CameraAwareMiniCutWindow._require_tool_project_ready
             _require_tool_media_ready = CameraAwareMiniCutWindow._require_tool_media_ready
+            _camera_cut_payload = CameraAwareMiniCutWindow._camera_cut_payload
             tool_add_cut = CameraAwareMiniCutWindow.tool_add_cut
 
             def _refresh(self):
                 pass
 
+        return Host, ExportModeStub
+
+    def test_manual_cut_keeps_requested_target_but_uses_camera_boundary_as_actual(self):
+        Host, ExportModeStub = self._host_class()
         with tempfile.TemporaryDirectory() as td:
             source = Path(td) / "movie.mp4"
             source.write_bytes(b"video")
@@ -197,11 +203,55 @@ class CameraAwareToolTests(unittest.TestCase):
         self.assertTrue(result["requested_timestamp_preserved"])
         self.assertFalse(result["exact_timestamp_preserved"])
         self.assertTrue(result["camera_change_found"])
+        self.assertFalse(result["duplicate_boundary"])
         self.assertEqual(host.model.cuts[0].requested_ms, 61_237)
         self.assertEqual(host.model.cuts[0].actual_ms, 61_208)
         self.assertEqual(host.model.cuts[0].exact_time, "15302/250")
         self.assertEqual(result["frame_authority"], "local-camera-boundary")
         self.assertEqual(host.export_mode.value, "smartcut")
+
+    def test_second_target_same_camera_boundary_is_idempotent_not_error(self):
+        Host, ExportModeStub = self._host_class()
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "movie.mp4"
+            source.write_bytes(b"video")
+
+            host = Host()
+            host.model = ProjectModel()
+            host.model.source = source
+            host.model.duration_ms = 120_000
+            host.analyze_worker = None
+            host.film_cut_worker = None
+            host.export_worker = None
+            host.export_mode = ExportModeStub()
+
+            resolved = {
+                "time_ms": 61_208,
+                "exact_time": "7651/125",
+                "camera_change_found": True,
+                "fallback_to_nearest_frame": False,
+                "shift_ms": 0,
+                "search_radius_ms": 2_000,
+                "scene_threshold": 0.27,
+                "reason": "camera boundary",
+            }
+            with patch(
+                "minicut_agent.camera_cut_window.find_tool",
+                side_effect=lambda name: name,
+            ), patch(
+                "minicut_agent.camera_cut_window.resolve_camera_boundary",
+                return_value=resolved,
+            ):
+                first = host.tool_add_cut(61_000)
+                second = host.tool_add_cut(61_300)
+
+        self.assertTrue(first["ok"])
+        self.assertTrue(second["ok"])
+        self.assertTrue(second["duplicate_boundary"])
+        self.assertTrue(second["skipped_duplicate"])
+        self.assertEqual(len(host.model.cuts), 1)
+        self.assertEqual(host.model.cuts[0].actual_ms, 61_208)
+        self.assertEqual(second["parts"], 2)
 
 
 class SamawaCutListParserTests(unittest.TestCase):
