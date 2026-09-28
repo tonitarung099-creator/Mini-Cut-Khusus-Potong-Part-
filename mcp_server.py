@@ -41,11 +41,15 @@ def request_json(
         ) from exc
 
 def run_tool(name: str, **args):
-    interactive_tools = {
+    long_running_tools = {
         "open_video", "open_project", "choose_subtitle",
         "save_project", "export_all",
+        # Camera-aware add_cut runs FFmpeg scene detection and exact-frame
+        # probing locally, so keep the MCP client timeout above the bridge's
+        # long-running timeout to avoid reporting a false failure.
+        "add_cut",
     }
-    timeout = 310 if name in interactive_tools else 65
+    timeout = 310 if name in long_running_tools else 65
     result = request_json("/tool", {"tool": name, "args": args}, timeout=timeout)
     if not result.get("ok", False):
         raise RuntimeError(result.get("error") or "MiniCut tool gagal.")
@@ -98,7 +102,7 @@ def step_frame(direction: int) -> dict:
 
 @mcp.tool()
 def add_cut(time_ms: int) -> dict:
-    """Tambah batas part pada timestamp dalam milidetik."""
+    """Tambah cut memakai time_ms sebagai target; MiniCut mencari camera boundary terdekat lalu mengunci ke frame master."""
     return run_tool("add_cut", time_ms=time_ms)
 
 @mcp.tool()
