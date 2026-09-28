@@ -15,6 +15,11 @@ MUTATING_TOOLS = {
     "divide_equal",
     "divide_interval",
     "apply_film_cut",
+    # Export mode is persistent, user-visible application state. It must be
+    # transactional even when AgentPlanner/ToolRegistry are used outside the
+    # camera-aware UI subclass; otherwise a later failing step can leave the
+    # mode changed after the rest of the plan is rolled back.
+    "set_export_mode",
 }
 
 class ToolRegistry:
