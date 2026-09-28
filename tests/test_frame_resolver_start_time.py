@@ -12,23 +12,23 @@ from minicut_agent.frame_resolver import (
 
 class FrameResolverStartTimeTests(unittest.TestCase):
     def test_frame_timestamps_are_relative_to_nonzero_container_start(self):
-        clock = subprocess.CompletedProcess(
+        discovery = subprocess.CompletedProcess(
             args=[],
             returncode=0,
             stdout=json.dumps({
-                "streams": [{"time_base": "1/1000"}],
                 "format": {"start_time": "1.500"},
+                "frames": [],
             }),
             stderr="",
         )
-        frames = subprocess.CompletedProcess(
+        corrected_frames = subprocess.CompletedProcess(
             args=[],
             returncode=0,
             stdout=json.dumps({
                 "frames": [
-                    {"best_effort_timestamp": 2500},
-                    {"best_effort_timestamp": 2540},
-                    {"best_effort_timestamp": 2600},
+                    {"best_effort_timestamp_time": "2.500"},
+                    {"best_effort_timestamp_time": "2.540"},
+                    {"best_effort_timestamp_time": "2.600"},
                 ]
             }),
             stderr="",
@@ -36,7 +36,7 @@ class FrameResolverStartTimeTests(unittest.TestCase):
 
         with patch(
             "minicut_agent.frame_resolver.run_text",
-            side_effect=[clock, frames],
+            side_effect=[discovery, corrected_frames],
         ) as runner:
             result = probe_frame_timestamps(
                 Path("movie.ts"),
@@ -46,6 +46,7 @@ class FrameResolverStartTimeTests(unittest.TestCase):
             )
 
         self.assertEqual(result, [1000, 1040, 1100])
+        self.assertEqual(runner.call_count, 2)
         frame_cmd = runner.call_args_list[1].args[0]
         interval = frame_cmd[frame_cmd.index("-read_intervals") + 1]
         self.assertEqual(interval, "2.5%2.6")
