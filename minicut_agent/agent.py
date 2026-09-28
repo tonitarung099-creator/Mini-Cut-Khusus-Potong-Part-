@@ -124,7 +124,13 @@ class AgentPlanner:
             return self.validate({"summary": "Ekspor semua part", "steps": [{"tool": "export_all", "args": {}}]})
 
         times = re.findall(r"\b\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d{1,3})?)?\b", raw)
-        if ("cut" in low or "potong" in low) and times:
+        has_cut_word = bool(
+            re.search(
+                r"(?<![A-Za-z0-9_])(?:cut|potong)(?![A-Za-z0-9_])",
+                low,
+            )
+        )
+        if has_cut_word and times:
             return self.validate({
                 "summary": "Tambahkan cut pada timestamp yang diminta",
                 "steps": [{"tool": "add_cut", "args": {"time_ms": t}} for t in times],
