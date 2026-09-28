@@ -15,6 +15,27 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
     playhead cuts, and chat actions that resolve to ``add_cut`` use this layer.
     """
 
+    def __init__(self):
+        super().__init__()
+        # The base registry is created before this subclass gets control. Keep
+        # the same registry/host, but make its manifest truthful for Gemini and
+        # external bridge clients now that add_cut treats time_ms as a target.
+        self._base_registry_manifest = self.registry.manifest
+        self.registry.manifest = self._camera_aware_manifest
+        self.bridge.manifest_provider = self.registry.manifest
+
+    def _camera_aware_manifest(self):
+        manifest = self._base_registry_manifest()
+        for spec in manifest.get("tools", []):
+            if spec.get("name") == "add_cut":
+                spec["description"] = (
+                    "Tambah batas part dengan time_ms sebagai target waktu. "
+                    "MiniCut mencari pergantian kamera terdekat ±2 detik, "
+                    "memperluas sampai ±4 detik bila perlu, lalu mengunci "
+                    "boundary ke PTS frame master untuk SmartCut."
+                )
+        return manifest
+
     def tool_add_cut(self, time_ms):
         self._require_tool_media_ready()
         if not self.model.source:
@@ -171,6 +192,27 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
                 self.gemini_chat_status.setText(
                     f"{len(lines)} titik dipotong pada boundary frame master."
                 )
+
+    def _gemini_chat_ready(self, result: dict):
+        # The legacy Gemini prompt still treats manual_frame_cut as an exact
+        # timestamp. In the active app that value is a target; make the visible
+        # reply explicit so users are never told the target will stay unchanged.
+        actions = result.get("actions") or []
+        camera_cut_action = any(
+            isinstance(item, dict)
+            and str(item.get("tool") or "").strip()
+            in {"manual_frame_cut", "frame_cut", "add_cut"}
+            for item in actions
+        )
+        if camera_cut_action:
+            result = dict(result)
+            reply = str(result.get("reply") or "").strip()
+            note = (
+                "MiniCut akan memakai waktu itu sebagai target lalu mengunci "
+                "potongan ke pergantian kamera/frame master terdekat."
+            )
+            result["reply"] = f"{reply} {note}".strip()
+        return super()._gemini_chat_ready(result)
 
 
 # Short alias so callers can import this module as the active MiniCut window.
