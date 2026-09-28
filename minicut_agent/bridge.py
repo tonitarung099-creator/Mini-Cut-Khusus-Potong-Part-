@@ -76,11 +76,16 @@ class LocalBridge:
                     if outer.stopping and not call.event.is_set():
                         call.result.update({"ok": False, "error": "MiniCut sedang ditutup."})
                         call.event.set()
-                    interactive_tools = {
+                    long_running_tools = {
                         "open_video", "open_project", "choose_subtitle",
                         "save_project", "export_all",
+                        # add_cut now runs local FFmpeg scene detection + ffprobe
+                        # frame locking. On 4K/HEVC/HDD sources it can exceed the
+                        # old 60 s bridge limit; timing out early could report a
+                        # failure even though the GUI later applies the cut.
+                        "add_cut",
                     }
-                    wait_seconds = 300 if tool in interactive_tools else 60
+                    wait_seconds = 300 if tool in long_running_tools else 60
                     if not call.event.wait(timeout=wait_seconds):
                         raise TimeoutError(
                             f"MiniCut tidak merespons tool dalam {wait_seconds} detik."
