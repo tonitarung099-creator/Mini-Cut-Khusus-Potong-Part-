@@ -261,6 +261,11 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
             for worker in workers
         )
 
+    def _trim_model_history_from(self, size: int) -> None:
+        """Keep local UI commands visible without replaying them to Gemini."""
+        if len(self._gemini_chat_history_data) > int(size):
+            del self._gemini_chat_history_data[int(size):]
+
     def _send_gemini_chat(self):
         """Handle explicit cut lists locally, leaving other chat to Gemini.
 
@@ -276,21 +281,29 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
         local_manual_cut = looks_like_manual_cut(text) and bool(timestamps)
         busy = self._manual_cut_workers_busy()
         if not local_manual_cut or busy:
-            # Base chat appends the user turn before validating that an API key
-            # can actually be used. If setup fails synchronously (no active key,
-            # unreadable DPAPI secret, etc.), remove that unmatched turn from the
-            # hidden model history so retrying the command cannot duplicate it.
+            # Base chat appends local cancellation commands and failed setup
+            # attempts to the same hidden history used for future Gemini calls.
+            # If no Gemini worker is launched, or another process already owned
+            # the app, any new history entry was handled locally and must not be
+            # replayed to the model on the next user message.
             history_size = len(self._gemini_chat_history_data)
             result = super()._send_gemini_chat()
             if (
-                not busy
-                and getattr(self, "gemini_chat_worker", None) is None
-                and len(self._gemini_chat_history_data) > history_size
+                len(self._gemini_chat_history_data) > history_size
+                and (
+                    busy
+                    or getattr(self, "gemini_chat_worker", None) is None
+                )
             ):
-                del self._gemini_chat_history_data[history_size:]
+                self._trim_model_history_from(history_size)
             return result
 
+        history_size = len(self._gemini_chat_history_data)
         self._append_gemini_chat("user", text)
+        # This command is executed locally below. Keep it in the visible chat,
+        # but remove it from the hidden model history immediately so a future
+        # unrelated Gemini request cannot execute the same cut list again.
+        self._trim_model_history_from(history_size)
         self.gemini_chat_input.clear()
 
         if not self.model.source:
