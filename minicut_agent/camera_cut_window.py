@@ -32,7 +32,7 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
                     "Tambah batas part dengan time_ms sebagai target waktu. "
                     "MiniCut mencari pergantian kamera terdekat ±2 detik, "
                     "memperluas sampai ±4 detik bila perlu, lalu mengunci "
-                    "boundary ke PTS frame master untuk SmartCut."
+                    "ke PTS frame master pertama pada shot baru untuk SmartCut."
                 )
         return manifest
 
@@ -101,6 +101,9 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
             "final_time": clock_text(final_ms),
             "shift_ms": int(resolved["shift_ms"]),
             "exact_time": exact_time,
+            "raw_scene_boundary_ms": resolved.get("raw_scene_boundary_ms"),
+            "raw_scene_boundary": str(resolved.get("raw_scene_boundary") or ""),
+            "frame_side": str(resolved.get("frame_side") or ""),
             "search_radius_ms": int(resolved["search_radius_ms"]),
             "scene_threshold": float(resolved["scene_threshold"]),
             "reason": str(resolved["reason"]),
@@ -172,7 +175,7 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
             if not result.get("ok"):
                 continue
             mode = (
-                "ganti kamera"
+                "ganti kamera · frame pertama shot baru"
                 if result.get("camera_change_found")
                 else "frame terdekat (fallback)"
             )
@@ -194,9 +197,9 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
                 )
 
     def _gemini_chat_ready(self, result: dict):
-        # The legacy Gemini prompt still treats manual_frame_cut as an exact
-        # timestamp. In the active app that value is a target; make the visible
-        # reply explicit so users are never told the target will stay unchanged.
+        # GeminiClient versi dasar masih mendeskripsikan manual_frame_cut sebagai
+        # timestamp exact. Pada window aktif, nilai itu adalah TARGET. Jangan
+        # meneruskan balasan yang bisa mengklaim timestamp akan dipakai mentah.
         actions = result.get("actions") or []
         camera_cut_action = any(
             isinstance(item, dict)
@@ -206,12 +209,15 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
         )
         if camera_cut_action:
             result = dict(result)
-            reply = str(result.get("reply") or "").strip()
-            note = (
-                "MiniCut akan memakai waktu itu sebagai target lalu mengunci "
-                "potongan ke pergantian kamera/frame master terdekat."
+            extra = ""
+            if len(actions) > 1:
+                extra = " Aksi lain pada perintah yang sama juga akan diproses sesuai urutan."
+            result["reply"] = (
+                "MiniCut akan memakai timestamp yang diminta sebagai target, "
+                "mencari pergantian kamera terdekat, lalu mengunci potongan ke "
+                "frame master pertama pada shot baru."
+                + extra
             )
-            result["reply"] = f"{reply} {note}".strip()
         return super()._gemini_chat_ready(result)
 
 
