@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from . import workers as workers_module
+from .agent import MUTATING_TOOLS
 from .camera_boundary import resolve_camera_boundary
 from .core import clock_text, find_tool, parse_time_ms
 from .frame_resolver import probe_keyframes_relative
@@ -23,6 +24,10 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
         # TS/MTS/remuxed media with non-zero container start_time do not shift
         # Fast Copy/keyframe snapping away from the UI timeline.
         workers_module.probe_keyframes = probe_keyframes_relative
+        # Export mode is user-visible mutable app state. Mark it transactional
+        # so a later failing action rolls the mode back together with timeline
+        # mutations, and bridge/agent Undo can restore the previous mode.
+        MUTATING_TOOLS.add("set_export_mode")
         super().__init__()
         # The base registry is created before this subclass gets control. Keep
         # the same registry/host, but make its manifest truthful for Gemini and
@@ -42,6 +47,24 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
                     "ke PTS frame master pertama pada shot baru untuk SmartCut."
                 )
         return manifest
+
+    def _snapshot(self) -> dict:
+        snapshot = super()._snapshot()
+        snapshot["export_mode"] = (
+            self.export_mode.currentData()
+            if hasattr(self, "export_mode")
+            else None
+        )
+        return snapshot
+
+    def _restore_snapshot(self, snapshot: dict) -> None:
+        super()._restore_snapshot(snapshot)
+        mode = str(snapshot.get("export_mode") or "").strip().lower()
+        if mode and hasattr(self, "export_mode"):
+            index = self.export_mode.findData(mode)
+            if index >= 0 and self.export_mode.currentIndex() != index:
+                self.export_mode.setCurrentIndex(index)
+                self._refresh()
 
     def _camera_cut_payload(
         self,
