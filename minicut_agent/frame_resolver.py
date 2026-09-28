@@ -16,35 +16,18 @@ def probe_frame_timestamps(
     start_ms: int,
     end_ms: int,
 ) -> list[int]:
-    start_ms = max(0, int(start_ms))
-    end_ms = max(start_ms + 1, int(end_ms))
-    cmd = [
-        ffprobe,
-        "-v", "error",
-        "-select_streams", "v:0",
-        "-read_intervals", f"{start_ms / 1000:.6f}%{end_ms / 1000:.6f}",
-        "-show_frames",
-        "-show_entries", "frame=best_effort_timestamp_time",
-        "-of", "json",
-        str(source),
-    ]
-    result = run_text(cmd)
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Frame timestamp tidak dapat dibaca.")
-    data = json.loads(result.stdout or "{}")
-    frames: list[int] = []
-    for frame in data.get("frames", []):
-        raw = frame.get("best_effort_timestamp_time")
-        if raw in (None, "N/A"):
-            continue
-        try:
-            ms = fraction_seconds_to_ms(Fraction(str(raw)))
-        except (TypeError, ValueError, ZeroDivisionError):
-            continue
-        if start_ms - 1000 <= ms <= end_ms + 1000:
-            frames.append(ms)
-    return sorted(set(frames))
+    """Return real frame timestamps on MiniCut's zero-based UI timeline.
 
+    Keep this compatibility helper on the same clock as ``probe_frame_points``.
+    The old implementation read ``best_effort_timestamp_time`` directly and
+    therefore treated container timestamps as UI timestamps. TS/MTS/remuxed
+    sources can start at a non-zero container PTS, shifting frame stepping and
+    semantic frame selection by that start offset.
+    """
+    return [
+        int(item["time_ms"])
+        for item in probe_frame_points(source, ffprobe, start_ms, end_ms)
+    ]
 
 
 def probe_frame_points(
