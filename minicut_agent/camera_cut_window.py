@@ -274,8 +274,21 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
 
         timestamps = extract_manual_timestamps(text)
         local_manual_cut = looks_like_manual_cut(text) and bool(timestamps)
-        if not local_manual_cut or self._manual_cut_workers_busy():
-            return super()._send_gemini_chat()
+        busy = self._manual_cut_workers_busy()
+        if not local_manual_cut or busy:
+            # Base chat appends the user turn before validating that an API key
+            # can actually be used. If setup fails synchronously (no active key,
+            # unreadable DPAPI secret, etc.), remove that unmatched turn from the
+            # hidden model history so retrying the command cannot duplicate it.
+            history_size = len(self._gemini_chat_history_data)
+            result = super()._send_gemini_chat()
+            if (
+                not busy
+                and getattr(self, "gemini_chat_worker", None) is None
+                and len(self._gemini_chat_history_data) > history_size
+            ):
+                del self._gemini_chat_history_data[history_size:]
+            return result
 
         self._append_gemini_chat("user", text)
         self.gemini_chat_input.clear()
@@ -355,6 +368,17 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
                 + extra
             )
         return super()._gemini_chat_ready(result)
+
+    def _gemini_chat_failed(self, message: str):
+        """Do not carry a terminally failed command into the next model turn."""
+        super()._gemini_chat_failed(message)
+        if (
+            getattr(self, "gemini_chat_worker", None) is None
+            and getattr(self, "_gemini_chat_retry_payload", None) is None
+            and self._gemini_chat_history_data
+            and self._gemini_chat_history_data[-1].get("role") == "user"
+        ):
+            self._gemini_chat_history_data.pop()
 
 
 # Short alias so callers can import this module as the active MiniCut window.
