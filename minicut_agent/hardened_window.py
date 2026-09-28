@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import queue
 from pathlib import Path
 
 from PySide6.QtWidgets import QMessageBox
 
 from . import APP_TITLE
+from .agent import MUTATING_TOOLS
 from .camera_cut_window import CameraAwareMiniCutWindow as BaseCameraAwareMiniCutWindow
 
 
@@ -233,6 +235,81 @@ class HardenedMiniCutWindow(BaseCameraAwareMiniCutWindow):
             )
             return
         return super()._clear_srt()
+
+    def _drain_bridge(self):
+        """Execute bridge calls without replaying requests that already timed out."""
+        self.bridge_state = self._state_with_subtitle()
+        for _ in range(20):
+            try:
+                call = self.bridge_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            snapshot = None
+            try:
+                with call.lock:
+                    if call.cancelled.is_set():
+                        call.result.setdefault("ok", False)
+                        call.result.setdefault("cancelled", True)
+                        call.result.setdefault(
+                            "error",
+                            "Request bridge sudah dibatalkan sebelum dieksekusi.",
+                        )
+                        call.event.set()
+                        continue
+                    call.started.set()
+
+                if call.tool in MUTATING_TOOLS:
+                    snapshot = self._snapshot()
+
+                result = self.registry.execute(call.tool, call.args)
+
+                with call.lock:
+                    if call.cancelled.is_set():
+                        # A timeout can happen while a synchronous mutation such
+                        # as camera-boundary add_cut is still resolving FFmpeg.
+                        # Restore the pre-call state instead of committing a late
+                        # mutation after the caller has already received failure.
+                        if snapshot is not None:
+                            self._restore_snapshot(snapshot)
+                        if (
+                            call.tool == "export_all"
+                            and getattr(self, "export_worker", None) is not None
+                        ):
+                            self.tool_cancel_export()
+                        call.result.clear()
+                        call.result.update({
+                            "ok": False,
+                            "cancelled": True,
+                            "error": (
+                                "Request bridge timeout saat sedang diproses; "
+                                "perubahan timeline dibatalkan."
+                            ),
+                        })
+                    else:
+                        if (
+                            call.tool in MUTATING_TOOLS
+                            and isinstance(result, dict)
+                            and result.get("ok", True)
+                            and snapshot is not None
+                        ):
+                            self.undo_stack.append(snapshot)
+                        call.result.update(result)
+                        call.result.setdefault("ok", True)
+                        self._refresh()
+            except Exception as exc:
+                with call.lock:
+                    if call.cancelled.is_set():
+                        if snapshot is not None:
+                            self._restore_snapshot(snapshot)
+                        call.result.setdefault("ok", False)
+                        call.result.setdefault("cancelled", True)
+                        call.result.setdefault("error", str(exc))
+                    else:
+                        call.result.update({"ok": False, "error": str(exc)})
+            finally:
+                with call.lock:
+                    call.event.set()
 
     def closeEvent(self, event):
         # Network/analyze workers are deliberately not force-terminated. The
