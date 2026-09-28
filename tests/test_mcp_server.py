@@ -25,6 +25,33 @@ class McpErrorHandlingTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Belum ada video"):
                 mcp_server.run_tool("play")
 
+    def test_camera_aware_add_cut_uses_long_timeout(self):
+        with patch(
+            "mcp_server.request_json",
+            return_value={"ok": True},
+        ) as request:
+            result = mcp_server.run_tool("add_cut", time_ms=61_237)
+
+        self.assertTrue(result["ok"])
+        request.assert_called_once_with(
+            "/tool",
+            {"tool": "add_cut", "args": {"time_ms": 61_237}},
+            timeout=310,
+        )
+
+    def test_lightweight_tool_keeps_short_timeout(self):
+        with patch(
+            "mcp_server.request_json",
+            return_value={"ok": True},
+        ) as request:
+            mcp_server.run_tool("play")
+
+        request.assert_called_once_with(
+            "/tool",
+            {"tool": "play", "args": {}},
+            timeout=65,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
