@@ -54,6 +54,17 @@ class HardenedMiniCutWindow(BaseCameraAwareMiniCutWindow):
             "export_worker",
         })
 
+    def _gemini_key_mutation_blockers(self) -> list[str]:
+        # These workers retain a concrete key ID until their completion callback
+        # records usage/status. Editing or deleting that record mid-flight can
+        # make the callback fail with KeyError and leave UI state half-finalized.
+        return self._present_worker_labels({
+            "gemini_test_worker",
+            "gemini_batch_worker",
+            "gemini_chat_worker",
+            "film_cut_worker",
+        })
+
     def _ensure_timeline_mutation_idle(self) -> None:
         blockers = self._timeline_mutation_blockers()
         if blockers:
@@ -143,6 +154,30 @@ class HardenedMiniCutWindow(BaseCameraAwareMiniCutWindow):
             )
             return
         return super()._start_film_cut()
+
+    def _edit_gemini_key(self):
+        blockers = self._gemini_key_mutation_blockers()
+        if blockers:
+            QMessageBox.information(
+                self,
+                APP_TITLE,
+                "API key belum boleh diedit karena masih dipakai proses berikut:\n"
+                + " · ".join(blockers),
+            )
+            return
+        return super()._edit_gemini_key()
+
+    def _remove_gemini_key(self):
+        blockers = self._gemini_key_mutation_blockers()
+        if blockers:
+            QMessageBox.information(
+                self,
+                APP_TITLE,
+                "API key belum boleh dihapus karena masih dipakai proses berikut:\n"
+                + " · ".join(blockers),
+            )
+            return
+        return super()._remove_gemini_key()
 
     def _fast_copy_safety_error(self) -> str | None:
         mode = str(self.export_mode.currentData() or "smartcut").strip().lower()
