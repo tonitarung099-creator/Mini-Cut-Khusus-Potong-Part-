@@ -237,7 +237,13 @@ class HardenedMiniCutWindow(BaseCameraAwareMiniCutWindow):
         return super()._clear_srt()
 
     def _drain_bridge(self):
-        """Execute bridge calls without replaying requests that already timed out."""
+        """Execute bridge calls without replaying requests that already timed out.
+
+        The bridge handler and GUI thread share ``call.lock``. After a tool
+        returns, publishing its result and setting the completion event happen in
+        the same critical section. Therefore timeout cannot win in the tiny gap
+        between "mutation committed" and "caller told it completed".
+        """
         self.bridge_state = self._state_with_subtitle()
         for _ in range(20):
             try:
@@ -264,29 +270,10 @@ class HardenedMiniCutWindow(BaseCameraAwareMiniCutWindow):
 
                 result = self.registry.execute(call.tool, call.args)
 
+                timed_out = False
                 with call.lock:
-                    if call.cancelled.is_set():
-                        # A timeout can happen while a synchronous mutation such
-                        # as camera-boundary add_cut is still resolving FFmpeg.
-                        # Restore the pre-call state instead of committing a late
-                        # mutation after the caller has already received failure.
-                        if snapshot is not None:
-                            self._restore_snapshot(snapshot)
-                        if (
-                            call.tool == "export_all"
-                            and getattr(self, "export_worker", None) is not None
-                        ):
-                            self.tool_cancel_export()
-                        call.result.clear()
-                        call.result.update({
-                            "ok": False,
-                            "cancelled": True,
-                            "error": (
-                                "Request bridge timeout saat sedang diproses; "
-                                "perubahan timeline dibatalkan."
-                            ),
-                        })
-                    else:
+                    timed_out = call.cancelled.is_set()
+                    if not timed_out:
                         if (
                             call.tool in MUTATING_TOOLS
                             and isinstance(result, dict)
@@ -296,19 +283,53 @@ class HardenedMiniCutWindow(BaseCameraAwareMiniCutWindow):
                             self.undo_stack.append(snapshot)
                         call.result.update(result)
                         call.result.setdefault("ok", True)
-                        self._refresh()
+                        # Result publication and completion are atomic relative
+                        # to the HTTP timeout path in LocalBridge.
+                        call.event.set()
+
+                if timed_out:
+                    # Timeout already released the HTTP caller. Undo any local
+                    # state mutation instead of committing a late ghost action.
+                    if snapshot is not None:
+                        self._restore_snapshot(snapshot)
+                    if (
+                        call.tool == "export_all"
+                        and getattr(self, "export_worker", None) is not None
+                    ):
+                        self.tool_cancel_export()
+                    with call.lock:
+                        call.result.clear()
+                        call.result.update({
+                            "ok": False,
+                            "cancelled": True,
+                            "error": (
+                                "Request bridge timeout saat sedang diproses; "
+                                "perubahan timeline dibatalkan."
+                            ),
+                        })
+                        call.event.set()
+                else:
+                    # Refresh is deliberately outside call.lock. The caller can
+                    # safely receive the completed tool result even if repainting
+                    # UI takes a little longer.
+                    self._refresh()
             except Exception as exc:
+                cancelled = call.cancelled.is_set()
+                if cancelled and snapshot is not None:
+                    try:
+                        self._restore_snapshot(snapshot)
+                    except Exception:
+                        pass
                 with call.lock:
-                    if call.cancelled.is_set():
-                        if snapshot is not None:
-                            self._restore_snapshot(snapshot)
-                        call.result.setdefault("ok", False)
-                        call.result.setdefault("cancelled", True)
-                        call.result.setdefault("error", str(exc))
+                    if cancelled:
+                        call.result.clear()
+                        call.result.update({
+                            "ok": False,
+                            "cancelled": True,
+                            "error": str(exc),
+                        })
                     else:
                         call.result.update({"ok": False, "error": str(exc)})
-            finally:
-                with call.lock:
                     call.event.set()
 
     def closeEvent(self, event):
