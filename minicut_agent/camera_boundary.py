@@ -10,6 +10,8 @@ from .subtitles import format_ms
 
 DEFAULT_SCENE_THRESHOLD = 0.27
 DEFAULT_SEARCH_RADII_MS = (2_000, 4_000)
+CAMERA_SCAN_PREROLL_MS = 10_000
+CAMERA_DEDUPE_TOLERANCE_MS = 1
 
 
 def _bounded_window(
@@ -44,15 +46,33 @@ def _nearest_frame_point(
     if not points:
         raise RuntimeError("PTS frame master tidak ditemukan di sekitar titik potong.")
 
-    def key(item: dict[str, Any]):
-        value = int(item["time_ms"])
-        if prefer_after_on_tie:
-            side = 0 if value >= int(reference_ms) else 1
-        else:
-            side = 0 if value <= int(reference_ms) else 1
-        return (abs(value - int(reference_ms)), side, value)
+    eligible = list(points)
+    if prefer_after_on_tie:
+        # For a detected shot boundary we need the first frame of the NEW shot,
+        # not the nearest frame on either side. The scene timestamp can be
+        # rounded to milliseconds, so choose the earliest master frame at or
+        # after that boundary whenever one exists.
+        after = [
+            item for item in eligible
+            if int(item["time_ms"]) >= int(reference_ms)
+        ]
+        if after:
+            return min(
+                after,
+                key=lambda item: (
+                    int(item["time_ms"]),
+                    str(item.get("exact_time") or ""),
+                ),
+            )
 
-    return min(points, key=key)
+    return min(
+        eligible,
+        key=lambda item: (
+            abs(int(item["time_ms"]) - int(reference_ms)),
+            0 if int(item["time_ms"]) <= int(reference_ms) else 1,
+            int(item["time_ms"]),
+        ),
+    )
 
 
 def _probe_exact_point(
@@ -93,9 +113,10 @@ def resolve_camera_boundary(
 
     The requested time remains the user's authoritative *target*. MiniCut first
     searches for a visual scene boundary around that target, then maps the
-    detected boundary to an exact rational PTS from the source master. If no
-    visual boundary is found, the fallback is the nearest real master frame so
-    SmartCut still receives a frame-valid boundary instead of an invented time.
+    detected boundary to the first exact master-frame PTS at/after that visual
+    change. If no visual boundary is found, the fallback is the nearest real
+    master frame so SmartCut still receives a frame-valid boundary instead of
+    an invented time.
     """
     requested_ms = max(0, int(requested_ms))
     if duration_ms is not None and int(duration_ms) > 0:
@@ -117,6 +138,13 @@ def resolve_camera_boundary(
             start_ms,
             end_ms,
             scene_threshold=float(scene_threshold),
+            # Exact camera cutting must preserve every real cut. The legacy
+            # semantic path may merge cuts within 350 ms, but doing that here
+            # can create a fake midpoint in rapid montage footage.
+            dedupe_tolerance_ms=CAMERA_DEDUPE_TOLERANCE_MS,
+            # Decode context before the window so sparse-GOP TS/MTS input seeks
+            # do not begin exactly on the new shot and hide the transition.
+            seek_preroll_ms=CAMERA_SCAN_PREROLL_MS,
         )
         if not visual_points:
             continue
@@ -144,7 +172,11 @@ def resolve_camera_boundary(
             "search_radius_ms": int(radius_ms),
             "scene_threshold": float(scene_threshold),
             "frame_verified": True,
-            "reason": "Dikunci ke PTS frame master pada pergantian kamera terdekat.",
+            "frame_side": "first-frame-new-shot",
+            "reason": (
+                "Dikunci ke PTS frame master pertama pada/ setelah "
+                "pergantian kamera terdekat."
+            ),
         }
 
     # No visual cut was detected even after expansion. Keep the operation
@@ -171,6 +203,7 @@ def resolve_camera_boundary(
         "search_radius_ms": int(radii[-1]),
         "scene_threshold": float(scene_threshold),
         "frame_verified": True,
+        "frame_side": "nearest-master-frame",
         "reason": (
             "Pergantian kamera tidak ditemukan dalam radius pencarian; "
             "dipakai PTS frame master terdekat."
