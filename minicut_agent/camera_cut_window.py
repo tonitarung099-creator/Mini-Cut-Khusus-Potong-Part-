@@ -36,6 +36,57 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
                 )
         return manifest
 
+    def _camera_cut_payload(
+        self,
+        *,
+        cut,
+        resolved: dict,
+        requested_ms: int,
+        final_ms: int,
+        exact_time: str,
+        duplicate_boundary: bool = False,
+        exact_time_enriched: bool = False,
+    ) -> dict:
+        return {
+            "ok": True,
+            "cut": asdict(cut),
+            "parts": len(self.model.cuts) + 1,
+            # Compatibility field: now false when the requested target moves
+            # to the real camera boundary. requested_ms itself is preserved.
+            "exact_timestamp_preserved": final_ms == requested_ms,
+            "requested_timestamp_preserved": True,
+            "camera_boundary_resolved": True,
+            "camera_change_found": bool(resolved["camera_change_found"]),
+            "fallback_to_nearest_frame": bool(
+                resolved["fallback_to_nearest_frame"]
+            ),
+            "duplicate_boundary": bool(duplicate_boundary),
+            "skipped_duplicate": bool(duplicate_boundary),
+            "exact_time_enriched": bool(exact_time_enriched),
+            "requested_ms": requested_ms,
+            "requested_time": clock_text(requested_ms),
+            "final_ms": final_ms,
+            "final_time": clock_text(final_ms),
+            "shift_ms": int(resolved["shift_ms"]),
+            "exact_time": exact_time,
+            "raw_scene_boundary_ms": resolved.get("raw_scene_boundary_ms"),
+            "raw_scene_boundary": str(resolved.get("raw_scene_boundary") or ""),
+            "frame_side": str(resolved.get("frame_side") or ""),
+            "search_radius_ms": int(resolved["search_radius_ms"]),
+            "scene_threshold": float(resolved["scene_threshold"]),
+            "reason": (
+                "Boundary kamera tersebut sudah ada di timeline; titik duplikat dilewati."
+                if duplicate_boundary
+                else str(resolved["reason"])
+            ),
+            "frame_authority": (
+                "local-camera-boundary"
+                if resolved["camera_change_found"]
+                else "local-nearest-master-frame"
+            ),
+            "export_mode": "smartcut",
+        }
+
     def tool_add_cut(self, time_ms):
         self._require_tool_media_ready()
         if not self.model.source:
@@ -71,6 +122,39 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
         final_ms = int(resolved["time_ms"])
         exact_time = str(resolved["exact_time"])
 
+        # Two nearby targets can legitimately resolve to the same camera
+        # boundary. Treating the second one as an exception used to make
+        # AgentPlanner roll the whole multi-cut transaction back, so a list of
+        # six otherwise-valid points could result in zero cuts. A repeated
+        # boundary is idempotent: keep the existing cut and continue the batch.
+        existing = next(
+            (
+                item
+                for item in self.model.cuts
+                if abs(int(item.actual_ms) - final_ms) < 2
+            ),
+            None,
+        )
+        exact_time_enriched = False
+        if existing is not None:
+            if not getattr(existing, "exact_time", None):
+                existing.exact_time = exact_time
+                self.model.dirty = True
+                exact_time_enriched = True
+            smart_index = self.export_mode.findData("smartcut")
+            if smart_index >= 0:
+                self.export_mode.setCurrentIndex(smart_index)
+            self._refresh()
+            return self._camera_cut_payload(
+                cut=existing,
+                resolved=resolved,
+                requested_ms=requested_ms,
+                final_ms=final_ms,
+                exact_time=exact_time,
+                duplicate_boundary=True,
+                exact_time_enriched=exact_time_enriched,
+            )
+
         cut = self.model.add_frame_cut(
             requested_ms,
             final_ms,
@@ -82,38 +166,13 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
             self.export_mode.setCurrentIndex(smart_index)
 
         self._refresh()
-        return {
-            "ok": True,
-            "cut": asdict(cut),
-            "parts": len(self.model.cuts) + 1,
-            # Compatibility field: now false when the requested target moves
-            # to the real camera boundary. requested_ms itself is preserved.
-            "exact_timestamp_preserved": final_ms == requested_ms,
-            "requested_timestamp_preserved": True,
-            "camera_boundary_resolved": True,
-            "camera_change_found": bool(resolved["camera_change_found"]),
-            "fallback_to_nearest_frame": bool(
-                resolved["fallback_to_nearest_frame"]
-            ),
-            "requested_ms": requested_ms,
-            "requested_time": clock_text(requested_ms),
-            "final_ms": final_ms,
-            "final_time": clock_text(final_ms),
-            "shift_ms": int(resolved["shift_ms"]),
-            "exact_time": exact_time,
-            "raw_scene_boundary_ms": resolved.get("raw_scene_boundary_ms"),
-            "raw_scene_boundary": str(resolved.get("raw_scene_boundary") or ""),
-            "frame_side": str(resolved.get("frame_side") or ""),
-            "search_radius_ms": int(resolved["search_radius_ms"]),
-            "scene_threshold": float(resolved["scene_threshold"]),
-            "reason": str(resolved["reason"]),
-            "frame_authority": (
-                "local-camera-boundary"
-                if resolved["camera_change_found"]
-                else "local-nearest-master-frame"
-            ),
-            "export_mode": "smartcut",
-        }
+        return self._camera_cut_payload(
+            cut=cut,
+            resolved=resolved,
+            requested_ms=requested_ms,
+            final_ms=final_ms,
+            exact_time=exact_time,
+        )
 
     def _manual_cut_workers_busy(self) -> bool:
         # film/export workers remain non-None during their final callback window;
@@ -174,11 +233,14 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
             result = dict(item.get("result") or {})
             if not result.get("ok"):
                 continue
-            mode = (
-                "ganti kamera · frame pertama shot baru"
-                if result.get("camera_change_found")
-                else "frame terdekat (fallback)"
-            )
+            if result.get("duplicate_boundary"):
+                mode = "boundary sama sudah ada · dilewati"
+            else:
+                mode = (
+                    "ganti kamera · frame pertama shot baru"
+                    if result.get("camera_change_found")
+                    else "frame terdekat (fallback)"
+                )
             lines.append(
                 f"Titik {index}: {result.get('requested_time')} → "
                 f"{result.get('final_time')} · {mode} · "
@@ -186,15 +248,22 @@ class CameraAwareMiniCutWindow(BaseMiniCutWindow):
             )
 
         if lines:
+            unique_count = sum(
+                1
+                for item in results
+                if not (item.get("result") or {}).get("duplicate_boundary")
+            )
+            duplicate_count = len(lines) - unique_count
+            summary = f"{unique_count} boundary unik dipasang"
+            if duplicate_count:
+                summary += f" · {duplicate_count} duplikat dilewati"
             self._append_gemini_chat(
                 "system",
                 "Titik potong diproses lokal tanpa memakai API Gemini:\n"
                 + "\n".join(lines),
             )
             if hasattr(self, "gemini_chat_status"):
-                self.gemini_chat_status.setText(
-                    f"{len(lines)} titik dipotong pada boundary frame master."
-                )
+                self.gemini_chat_status.setText(summary + ".")
 
     def _gemini_chat_ready(self, result: dict):
         # GeminiClient versi dasar masih mendeskripsikan manual_frame_cut sebagai
