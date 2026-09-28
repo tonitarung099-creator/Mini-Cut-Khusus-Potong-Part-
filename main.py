@@ -2,11 +2,11 @@ import sys
 from pathlib import Path
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
-from minicut_agent.ui import MiniCutWindow
+from minicut_agent.camera_cut_window import CameraAwareMiniCutWindow
 
 def main():
     app = QApplication(sys.argv)
-    win = MiniCutWindow()
+    win = CameraAwareMiniCutWindow()
     win.show()
     if "--self-test-player" in sys.argv:
         def verify_player_backend():
