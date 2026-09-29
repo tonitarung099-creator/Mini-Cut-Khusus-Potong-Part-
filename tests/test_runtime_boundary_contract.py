@@ -6,10 +6,15 @@ from fractions import Fraction
 from pathlib import Path
 from unittest.mock import patch
 
-from minicut_agent.core import ProjectModel
+from minicut_agent import verified_window as verified_window_module
+from minicut_agent.core import CutPoint, ProjectModel
 from minicut_agent.gemini import GeminiUsage
 from minicut_agent.gemini_boundary import BoundaryAwareGeminiClient
 from minicut_agent.runtime_window import RuntimeMiniCutWindow
+from minicut_agent.verified_window import (
+    apply_cut_verification_metadata,
+    cut_verification_metadata,
+)
 
 
 class RuntimeFilmCutVerificationTests(unittest.TestCase):
@@ -104,6 +109,36 @@ class RuntimeFilmCutVerificationTests(unittest.TestCase):
             self.assertEqual(Fraction(checked["selected_time_exact"]), gemini_exact)
             self.assertEqual(checked["verified_candidate_time_ms"], 12_804)
             self.assertEqual(checked["verified_candidate_exact"], "307307/24000")
+
+    def test_verified_metadata_records_persistence_proof(self):
+        metadata = RuntimeMiniCutWindow._verified_metadata({
+            "pts": 307307,
+            "time_base": "1/24000",
+            "raw_scene_boundary_exact": "307307/24000",
+            "pts_verified": True,
+            "camera_boundary_verified": True,
+            "needs_review": False,
+            "fallback_to_nearest_frame": False,
+            "persistence_verified": True,
+            "reason": "persistent A-to-B boundary",
+        }, "fixture")
+        self.assertTrue(metadata["persistence_verified"])
+        self.assertTrue(metadata["camera_boundary_verified"])
+
+    def test_persistence_proof_survives_cut_metadata_roundtrip(self):
+        self.assertIn(
+            "persistence_verified",
+            verified_window_module._CUT_META_FIELDS,
+        )
+        cut = CutPoint(12_900, 12_804, "307307/24000")
+        apply_cut_verification_metadata(cut, {
+            "camera_boundary_verified": True,
+            "requires_camera_boundary": True,
+            "persistence_verified": True,
+        })
+        saved = cut_verification_metadata(cut)
+        self.assertTrue(saved["camera_boundary_verified"])
+        self.assertTrue(saved["persistence_verified"])
 
 
 class HighFpsGeminiRefinementTests(unittest.TestCase):
