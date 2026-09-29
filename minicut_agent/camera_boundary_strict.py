@@ -37,13 +37,7 @@ def _persistent_signal_change_events(
     end_ms: int,
     min_distance: float = 0.055,
 ) -> list[dict[str, Any]]:
-    """Emit the first real frame whose luma/chroma state changed persistently.
-
-    A three-frame before median can still contain the old state for one frame
-    after the transition. Once a persistent transition is emitted, suppress the
-    next two decoded-frame candidates so one physical cut cannot become two
-    signal events. The retained event is always the earliest changed frame.
-    """
+    """Emit the first real frame whose luma/chroma state changed persistently."""
     events: list[dict[str, Any]] = []
     if len(frames) < 5:
         return events
@@ -133,11 +127,77 @@ def _strict_mark_ambiguous_rapid_reversals(
         index = end
 
 
-# detect_camera_boundary_events resolves these names dynamically in the base
-# module. Keep exact PTS parsing there, while replacing only the policies that
-# require persistence/duplicate awareness.
+def _probe_master_point_with_seek_tolerance(
+    source: Path,
+    ffprobe: str,
+    exact_boundary: Fraction,
+    duration_ms: int | None,
+) -> dict[str, Any] | None:
+    """Map detector PTS to the identical master frame without millisecond rounding.
+
+    Input seeking with a decimal -ss can shift filter PTS by a fraction of one
+    stream time-base tick (for example 31.25 microseconds). We therefore compare
+    rational values directly and accept only a tiny delta: at most 1 ms and at
+    most one quarter of the local master-frame cadence. A one-frame-late event
+    (about 40 ms at 25 fps / 41.7 ms at 23.976 fps) can never pass this gate.
+    The returned timestamp is always the original ffprobe master PTS.
+    """
+    reference_ms = fraction_seconds_to_ms(exact_boundary)
+    for radius_ms in (350, 1_200, 4_000):
+        start_ms, end_ms = _base_boundary._bounded_window(
+            reference_ms,
+            radius_ms,
+            duration_ms,
+        )
+        points = _base_boundary.probe_frame_points(
+            source,
+            ffprobe,
+            start_ms,
+            end_ms,
+        )
+        if not points:
+            continue
+
+        parsed: list[tuple[Fraction, dict[str, Any]]] = []
+        for point in points:
+            try:
+                parsed.append((Fraction(str(point["exact_time"])), point))
+            except (KeyError, TypeError, ValueError, ZeroDivisionError):
+                continue
+        if not parsed:
+            continue
+
+        parsed.sort(key=lambda item: item[0])
+        nearest_exact, nearest_point = min(
+            parsed,
+            key=lambda item: abs(item[0] - exact_boundary),
+        )
+        delta = abs(nearest_exact - exact_boundary)
+        if delta == 0:
+            return nearest_point
+
+        cadences = [
+            parsed[i + 1][0] - parsed[i][0]
+            for i in range(len(parsed) - 1)
+            if parsed[i + 1][0] > parsed[i][0]
+        ]
+        cadence_limit = min(cadences) / 4 if cadences else Fraction(1, 1000)
+        tolerance = min(Fraction(1, 1000), cadence_limit)
+        if delta <= tolerance:
+            matched = dict(nearest_point)
+            matched["detector_exact_time"] = str(exact_boundary)
+            matched["detector_master_delta"] = str(delta)
+            return matched
+    return None
+
+
+# detect_camera_boundary_events / resolve_camera_boundary look these globals up
+# dynamically. Exact detection stays in camera_boundary.py; strict runtime only
+# replaces policies that need persistence, duplicate handling and micro-offset
+# reconciliation back to the original master PTS.
 _base_boundary._signal_change_events = _persistent_signal_change_events
 _base_boundary._mark_ambiguous_rapid_reversals = _strict_mark_ambiguous_rapid_reversals
+_base_boundary._probe_matching_exact_point = _probe_master_point_with_seek_tolerance
 
 
 def _looks_like_transient_flash(
