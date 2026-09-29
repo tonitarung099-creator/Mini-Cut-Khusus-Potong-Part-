@@ -76,7 +76,7 @@ jobs:
         shell: pwsh
         env:
           MINICUT_FFMPEG: ${{ github.workspace }}\ffmpeg-runtime\ffmpeg.exe
-          MINICUT_FFPROBE: ${{ github.workspace }}\ffprobe-runtime\ffprobe.exe
+          MINICUT_FFPROBE: ${{ github.workspace }}\ffmpeg-runtime\ffprobe.exe
         run: |
           python -m unittest discover -s tests -v
 
