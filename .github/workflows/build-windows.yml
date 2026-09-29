@@ -66,13 +66,16 @@ jobs:
         run: |
           python -m compileall -q minicut_agent main.py mcp_server.py smartcut_runner.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -c "from minicut_agent.ui import MiniCutWindow; from minicut_agent.gemini_keys import GeminiKeyStore; print('ui-import-ok')"
+          python -c "from minicut_agent.verified_window import VerifiedMiniCutWindow; from minicut_agent.gemini_keys import GeminiKeyStore; print('ui-import-ok')"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -c "import mcp_server; print('mcp-import-ok')"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Unit tests
         shell: pwsh
+        env:
+          MINICUT_FFMPEG: ${{ github.workspace }}\ffmpeg-runtime\ffmpeg.exe
+          MINICUT_FFPROBE: ${{ github.workspace }}\ffmpeg-runtime\ffprobe.exe
         run: |
           python -m unittest discover -s tests -v
 
@@ -117,6 +120,16 @@ jobs:
         shell: pwsh
         run: |
           & "dist/MiniCut Studio Agent/MiniCut SmartCut.exe" --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify real exported boundary frames
+        shell: pwsh
+        env:
+          MINICUT_FFMPEG: ${{ github.workspace }}\ffmpeg-runtime\ffmpeg.exe
+          MINICUT_FFPROBE: ${{ github.workspace }}\ffmpeg-runtime\ffprobe.exe
+          MINICUT_SMARTCUT_EXE: ${{ github.workspace }}\dist\MiniCut Studio Agent\MiniCut SmartCut.exe
+        run: |
+          python -m unittest discover -s tests -p "test_camera_boundary_integration.py" -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Smoke test executable
