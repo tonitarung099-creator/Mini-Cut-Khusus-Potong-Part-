@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 import unittest
 from fractions import Fraction
-from pathlib import Path
 from unittest.mock import patch
 
 import smartcut_runner
@@ -48,39 +47,43 @@ class SmartCutExactFramePlanTests(unittest.TestCase):
         self.assertEqual(plan.expected_frames, 200 - 97)
         self.assertIsNone(plan.retry_keep)
 
-    def test_only_minicut_exact_fraction_syntax_activates_hardening(self):
-        exact = [
+    def test_exact_fraction_syntax_activates_hardening_on_staging_output(self):
+        final_name = [
             "movie.mp4",
             "movie_Part-01.mp4",
+            "--keep",
+            "start,97/24",
+        ]
+        staging_name = [
+            "movie.mp4",
+            ".movie_Part-01.minicut-stage-abc.mp4",
             "--keep",
             "start,97/24",
         ]
         rounded_fallback = [
             "movie.mp4",
-            "movie_Part-01.mp4",
+            ".movie_Part-01.minicut-stage-abc.mp4",
             "--keep",
             "start,4.041667",
         ]
-        generic_output = [
-            "movie.mp4",
-            "clip.mp4",
-            "--keep",
-            "start,97/24",
-        ]
-        self.assertTrue(smartcut_runner._looks_like_minicut_exact_keep(exact))
+        self.assertTrue(
+            smartcut_runner._looks_like_minicut_exact_keep(final_name)
+        )
+        self.assertTrue(
+            smartcut_runner._looks_like_minicut_exact_keep(staging_name)
+        )
         self.assertFalse(
             smartcut_runner._looks_like_minicut_exact_keep(rounded_fallback)
         )
-        self.assertFalse(smartcut_runner._looks_like_minicut_exact_keep(generic_output))
 
 
 class SmartCutExactFrameRetryTests(unittest.TestCase):
-    def test_main_retries_only_one_missing_final_frame(self):
+    def test_main_retries_only_one_missing_final_frame_on_staging_output(self):
         source = _FakeSource()
         argv = [
             "MiniCut SmartCut.exe",
             "movie.mp4",
-            "movie_Part-01.mp4",
+            ".movie_Part-01.minicut-stage-abc.mp4",
             "--keep",
             "start,97/24",
             "--log-level",
@@ -118,7 +121,7 @@ class SmartCutExactFrameRetryTests(unittest.TestCase):
         argv = [
             "MiniCut SmartCut.exe",
             "movie.mp4",
-            "movie_Part-01.mp4",
+            ".movie_Part-01.minicut-stage-abc.mp4",
             "--keep",
             "start,97/24",
         ]
