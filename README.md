@@ -20,8 +20,21 @@ Aplikasi desktop Windows untuk membagi film/video menjadi beberapa part dengan b
 - **Scrubbing dua tahap** — saat drag memakai seek cepat, saat dilepas dikunci ke posisi exact pada master asli.
 - **Playback 0.5x–4x** dan tombol maju/mundur 1 frame berbasis PTS master.
 - **Gemini API Manager** — hingga 100 API key, disimpan lokal menggunakan Windows DPAPI. Jika key aktif terkena limit, MiniCut dapat berpindah otomatis ke key lain yang masih dapat dipakai tanpa mencoba key yang sama berulang kali.
+- **Import banyak API dari TXT** — tidak perlu memberi nama API atau project. Tekan `Import TXT`, isi file dengan satu API key per baris, lalu MiniCut menambahkan semuanya sekaligus. Baris kosong, komentar, dan key duplikat dilewati otomatis; batas maksimum tetap 100 key.
 - **Cache/resume AI Film Cut** — hasil CUT, NO CUT, dan grid yang dilewati dapat dipulihkan saat failover/retry agar target selesai tidak dianalisis ulang.
 - **MCP companion + local bridge** untuk integrasi agent eksternal.
+
+## Import banyak Gemini API dari TXT
+
+Di tab **API**, pilih **Import TXT**. Format paling sederhana:
+
+```text
+AIza...................................
+AIza...................................
+AIza...................................
+```
+
+Nama API tidak perlu ditulis. MiniCut memberi nomor otomatis seperti `API 001`, `API 002`, dan seterusnya. Format `.env` seperti `GEMINI_API_KEY=...` juga diterima. Import tidak otomatis mengetes API secara online, sehingga tidak menghabiskan request hanya karena file dimasukkan. Untuk pengecekan, gunakan tombol **Cek Semua API Online** secara manual.
 
 ## Cara kerja cut manual / daftar titik potong
 
@@ -80,8 +93,10 @@ Target 15 menit adalah patokan, bukan batas wajib. Perpindahan scene yang natura
 
 ## Struktur
 
-- `main.py` — entry point aplikasi; memakai window camera-aware.
+- `main.py` — entry point aplikasi; memakai runtime dengan bulk API import.
 - `minicut_agent/ui.py` — UI PySide6 dasar.
+- `minicut_agent/bulk_api_window.py` — layer UI untuk tambah API tanpa nama dan import TXT massal.
+- `minicut_agent/gemini_key_import.py` — parser TXT, deduplikasi, dan import API key massal.
 - `minicut_agent/camera_cut_window.py` — layer UI aktif untuk manual/chat camera-boundary cut.
 - `minicut_agent/camera_boundary.py` — deteksi pergantian kamera lokal dan penguncian ke PTS master.
 - `minicut_agent/core.py` — proyek, FFmpeg, dan export.
@@ -120,7 +135,7 @@ build_windows.bat
 
 ## Keamanan API key
 
-Gemini API key tidak dimasukkan ke source code atau cache proyek. Penyimpanan lokal menggunakan Windows DPAPI dan terikat ke user Windows.
+Gemini API key tidak dimasukkan ke source code atau cache proyek. Penyimpanan lokal menggunakan Windows DPAPI dan terikat ke user Windows. Import TXT hanya membaca file lokal yang dipilih pengguna; isi key tidak ditulis ke log aplikasi.
 
 ## Third-party
 
