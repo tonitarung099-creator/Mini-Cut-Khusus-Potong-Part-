@@ -8,7 +8,7 @@ import unittest
 from fractions import Fraction
 from pathlib import Path
 
-from minicut_agent.camera_boundary import resolve_camera_boundary
+from minicut_agent.camera_boundary_strict import resolve_camera_boundary
 from minicut_agent.core import export_segments_smartcut, fraction_seconds_to_ms
 
 
@@ -192,6 +192,7 @@ class RealFFmpegCameraBoundaryTests(unittest.TestCase):
             self.assertFalse(result["camera_boundary_verified"], result)
             self.assertTrue(result["needs_review"], result)
             self.assertFalse(result["fallback_to_nearest_frame"], result)
+            self.assertTrue(result.get("transient_flash_detected"), result)
 
     def test_rounding_boundary_smartcut_export_has_correct_edge_frames(self):
         smartcut = os.environ.get("MINICUT_SMARTCUT_EXE")
