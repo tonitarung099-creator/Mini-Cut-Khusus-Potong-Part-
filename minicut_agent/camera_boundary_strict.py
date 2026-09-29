@@ -37,12 +37,22 @@ def _persistent_signal_change_events(
     end_ms: int,
     min_distance: float = 0.055,
 ) -> list[dict[str, Any]]:
-    """Emit the first real frame whose luma/chroma state changed persistently."""
+    """Emit the first real frame whose luma/chroma state changed persistently.
+
+    A three-frame before median can still contain the old state for one frame
+    after the transition. Once a persistent transition is emitted, suppress the
+    next two decoded-frame candidates so one physical cut cannot become two
+    signal events. The retained event is always the earliest changed frame.
+    """
     events: list[dict[str, Any]] = []
     if len(frames) < 5:
         return events
 
+    last_emitted_index = -10_000
     for index in range(2, len(frames) - 1):
+        if index - last_emitted_index <= 2:
+            continue
+
         point = frames[index]
         point_ms = int(point["time_ms"])
         if not (int(start_ms) <= point_ms <= int(end_ms)):
@@ -77,6 +87,7 @@ def _persistent_signal_change_events(
             "detector": "signal",
             "signal_distance": float(entry_jump),
         })
+        last_emitted_index = index
     return events
 
 
@@ -85,14 +96,7 @@ def _strict_mark_ambiguous_rapid_reversals(
     *,
     window_ms: int = 120,
 ) -> None:
-    """Separate duplicate detector hits from genuinely rapid/ambiguous cuts.
-
-    A persistent signal transition is frame-grounded. FFmpeg's scene detector
-    can report the same transition one frame later, especially after seeking or
-    with inter-frame codecs. In that case keep the single signal event and mark
-    adjacent scene-only hits as duplicate/ambiguous. If there is no unique
-    persistent signal anchor, multiple close events remain conservative REVIEW.
-    """
+    """Separate duplicate detector hits from genuinely rapid/ambiguous cuts."""
     for event in events:
         event["ambiguous_rapid_change"] = False
 
@@ -130,8 +134,8 @@ def _strict_mark_ambiguous_rapid_reversals(
 
 
 # detect_camera_boundary_events resolves these names dynamically in the base
-# module. Keep exact PTS parsing there, while replacing only the two policies
-# that require persistence/duplicate awareness.
+# module. Keep exact PTS parsing there, while replacing only the policies that
+# require persistence/duplicate awareness.
 _base_boundary._signal_change_events = _persistent_signal_change_events
 _base_boundary._mark_ambiguous_rapid_reversals = _strict_mark_ambiguous_rapid_reversals
 
