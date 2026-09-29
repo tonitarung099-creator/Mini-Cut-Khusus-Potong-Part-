@@ -95,6 +95,32 @@ def _gray_frames(ffmpeg: str, path: Path) -> tuple[int, list[bytes]]:
     return len(frames), frames
 
 
+def _fps_fixture(rate: str, boundary_frame: int, tail_frames: int = 80) -> dict:
+    fps = Fraction(rate)
+    total_frames = boundary_frame + tail_frames
+    boundary_exact = Fraction(boundary_frame, 1) / fps
+    duration_exact = Fraction(total_frames, 1) / fps
+    return {
+        "rate": rate,
+        "boundary_frame": boundary_frame,
+        "total_frames": total_frames,
+        "boundary_exact": boundary_exact,
+        "duration_ms": fraction_seconds_to_ms(duration_exact),
+        "target_ms": fraction_seconds_to_ms(boundary_exact + Fraction(1, 10)),
+    }
+
+
+COMMON_FPS_FIXTURES = (
+    _fps_fixture("24", 97),
+    _fps_fixture("25", 101),
+    _fps_fixture("30000/1001", 121),
+    _fps_fixture("30", 121),
+    _fps_fixture("50", 201),
+    _fps_fixture("60", 241),
+    _fps_fixture("120", 481),
+)
+
+
 class RealFFmpegCameraBoundaryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -128,6 +154,43 @@ class RealFFmpegCameraBoundaryTests(unittest.TestCase):
             self.assertFalse(result["fallback_to_nearest_frame"], result)
             self.assertEqual(Fraction(str(result["exact_time"])), expected)
             self.assertEqual(int(result["time_ms"]), 12_804)
+
+    def test_common_frame_rates_keep_exact_first_new_shot_pts(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for fixture in COMMON_FPS_FIXTURES:
+                rate = fixture["rate"]
+                boundary_frame = fixture["boundary_frame"]
+                with self.subTest(rate=rate):
+                    source = root / f"rate-{rate.replace('/', '-')}.mp4"
+                    _make_video(
+                        self.ffmpeg,
+                        source,
+                        rate=rate,
+                        frames=fixture["total_frames"],
+                        geq=(
+                            "geq=lum='if(lt(N,"
+                            f"{boundary_frame}"
+                            "),16,235)':cb=128:cr=128"
+                        ),
+                    )
+                    result = resolve_camera_boundary(
+                        source,
+                        self.ffmpeg,
+                        self.ffprobe,
+                        fixture["target_ms"],
+                        duration_ms=fixture["duration_ms"],
+                        require_camera_change=True,
+                    )
+
+                    self.assertTrue(result["camera_boundary_verified"], result)
+                    self.assertTrue(result["pts_verified"], result)
+                    self.assertTrue(result.get("persistence_verified", False), result)
+                    self.assertFalse(result["fallback_to_nearest_frame"], result)
+                    self.assertEqual(
+                        Fraction(str(result["exact_time"])),
+                        fixture["boundary_exact"],
+                    )
 
     def test_subtle_luma_change_is_found_without_nearest_frame_fallback(self):
         with tempfile.TemporaryDirectory() as td:
@@ -252,6 +315,72 @@ class RealFFmpegCameraBoundaryTests(unittest.TestCase):
             first_new_mean = sum(frames2[0]) / len(frames2[0])
             self.assertLess(last_old_mean, 80.0)
             self.assertGreater(first_new_mean, 170.0)
+
+    def test_common_frame_rates_smartcut_export_stays_on_exact_camera_frame(self):
+        smartcut = os.environ.get("MINICUT_SMARTCUT_EXE")
+        if not smartcut or not Path(smartcut).is_file():
+            raise unittest.SkipTest(
+                "Companion SmartCut belum tersedia; test ini dijalankan lagi setelah build companion."
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for fixture in COMMON_FPS_FIXTURES:
+                rate = fixture["rate"]
+                boundary_frame = fixture["boundary_frame"]
+                total_frames = fixture["total_frames"]
+                safe_rate = rate.replace("/", "-")
+                with self.subTest(rate=rate):
+                    source = root / f"smartcut-{safe_rate}.mp4"
+                    out_dir = root / f"parts-{safe_rate}"
+                    _make_video(
+                        self.ffmpeg,
+                        source,
+                        rate=rate,
+                        frames=total_frames,
+                        geq=(
+                            "geq=lum='if(lt(N,"
+                            f"{boundary_frame}"
+                            "),16,235)':cb=128:cr=128"
+                        ),
+                    )
+                    result = resolve_camera_boundary(
+                        source,
+                        self.ffmpeg,
+                        self.ffprobe,
+                        fixture["target_ms"],
+                        duration_ms=fixture["duration_ms"],
+                        require_camera_change=True,
+                    )
+                    self.assertTrue(result["camera_boundary_verified"], result)
+                    exact = Fraction(str(result["exact_time"]))
+                    self.assertEqual(exact, fixture["boundary_exact"])
+
+                    count, _size = export_segments_smartcut(
+                        smartcut,
+                        source,
+                        out_dir,
+                        f"rate-{safe_rate}",
+                        [fraction_seconds_to_ms(exact)],
+                        fixture["duration_ms"],
+                        cut_exact_times=[str(exact)],
+                    )
+                    self.assertEqual(count, 2)
+                    part1 = out_dir / f"rate-{safe_rate}_Part-01.mp4"
+                    part2 = out_dir / f"rate-{safe_rate}_Part-02.mp4"
+                    self.assertTrue(part1.is_file())
+                    self.assertTrue(part2.is_file())
+
+                    count1, frames1 = _gray_frames(self.ffmpeg, part1)
+                    count2, frames2 = _gray_frames(self.ffmpeg, part2)
+                    self.assertEqual(count1, boundary_frame)
+                    self.assertEqual(count2, total_frames - boundary_frame)
+                    self.assertEqual(count1 + count2, total_frames)
+
+                    last_old_mean = sum(frames1[-1]) / len(frames1[-1])
+                    first_new_mean = sum(frames2[0]) / len(frames2[0])
+                    self.assertLess(last_old_mean, 80.0)
+                    self.assertGreater(first_new_mean, 170.0)
 
 
 if __name__ == "__main__":
