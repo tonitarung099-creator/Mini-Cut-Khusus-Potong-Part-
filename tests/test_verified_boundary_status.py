@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -59,7 +60,7 @@ class VerificationPersistenceTests(unittest.TestCase):
             host.model.save(project)
 
             data, loaded_source = load_project_file(project)
-            self.assertEqual(loaded_source, source)
+            self.assertTrue(os.path.samefile(loaded_source, source))
             self.assertGreaterEqual(int(data["version"]), 3)
             self.assertEqual(data["camera_boundary_schema"], 1)
             self.assertEqual(len(data["pending_camera_reviews"]), 1)
