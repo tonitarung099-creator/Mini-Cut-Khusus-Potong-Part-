@@ -3,12 +3,20 @@ from __future__ import annotations
 from fractions import Fraction
 from typing import Any
 
+from . import verified_window as verified_window_module
 from . import workers as workers_module
 from .camera_boundary_strict import resolve_camera_boundary
 from .core import clock_text, find_tool
 from .final_window import FinalMiniCutWindow
 from .gemini_boundary import BoundaryAwareGeminiClient
 from .ui import MiniCutWindow as BaseMiniCutWindow
+
+
+# The strict runtime proves that a camera boundary is not a one-frame A->B->A
+# flash. Keep that proof on CutPoint metadata so save/load, undo/redo and bridge
+# state do not discard it after the detector has already verified persistence.
+if "persistence_verified" not in verified_window_module._CUT_META_FIELDS:
+    verified_window_module._CUT_META_FIELDS += ("persistence_verified",)
 
 
 class RuntimeMiniCutWindow(FinalMiniCutWindow):
@@ -20,6 +28,14 @@ class RuntimeMiniCutWindow(FinalMiniCutWindow):
         # remain unchanged.
         workers_module.GeminiClient = BoundaryAwareGeminiClient
         super().__init__()
+
+    @staticmethod
+    def _verified_metadata(resolved: dict[str, Any], provenance: str) -> dict[str, Any]:
+        metadata = FinalMiniCutWindow._verified_metadata(resolved, provenance)
+        metadata["persistence_verified"] = bool(
+            resolved.get("persistence_verified", False)
+        )
+        return metadata
 
     def _gemini_chat_ready(self, result: dict):
         actions = result.get("actions") or []
@@ -156,6 +172,38 @@ class RuntimeMiniCutWindow(FinalMiniCutWindow):
         # bypass that override: equality is required instead.
         return BaseMiniCutWindow._film_cut_done(self, validated)
 
+    def _apply_film_cut(self, *, record_undo: bool = True) -> dict:
+        result = dict(super()._apply_film_cut(record_undo=record_undo) or {})
+        if not result.get("ok"):
+            return result
+
+        by_exact = {
+            str(item.get("selected_time_exact") or "").strip(): item
+            for item in self.film_cut_results
+            if item.get("selected_time_exact") not in (None, "")
+        }
+        by_ms = {
+            int(item.get("selected_time_ms") or 0): item
+            for item in self.film_cut_results
+            if int(item.get("selected_time_ms") or 0) > 0
+        }
+        for cut in self.model.cuts:
+            if not bool(getattr(cut, "requires_camera_boundary", False)):
+                continue
+            item = by_exact.get(str(cut.exact_time or "").strip())
+            if item is None:
+                item = by_ms.get(int(cut.actual_ms))
+            if item is None:
+                continue
+            setattr(
+                cut,
+                "persistence_verified",
+                bool(item.get("persistence_verified", False)),
+            )
+        self.model.dirty = True
+        self._refresh()
+        return result
+
     def _camera_export_error(self) -> str | None:
         # A missing mandatory target should block *any* export mode; otherwise a
         # user could switch to Fast Copy and unknowingly export a timeline from
@@ -165,6 +213,23 @@ class RuntimeMiniCutWindow(FinalMiniCutWindow):
                 f"Ada {len(self._pending_camera_reviews)} target potong berstatus REVIEW. "
                 "Boundary kamera belum terbukti, jadi ekspor ditahan agar target yang "
                 "belum selesai tidak diam-diam hilang dari hasil."
+            )
+
+        # Backward compatibility: projects created before persistence evidence
+        # was stored do not have this attribute. New runtime cuts do; if the flag
+        # exists and is false, never export that cut as a proven camera boundary.
+        nonpersistent = [
+            cut for cut in self.model.cuts
+            if bool(getattr(cut, "requires_camera_boundary", False))
+            and bool(getattr(cut, "camera_boundary_verified", False))
+            and hasattr(cut, "persistence_verified")
+            and not bool(getattr(cut, "persistence_verified", False))
+        ]
+        if nonpersistent:
+            return (
+                f"Ada {len(nonpersistent)} cut yang PTS-nya cocok tetapi persistensi "
+                "pergantian kameranya belum terbukti. Analisis ulang titik tersebut "
+                "sebelum ekspor."
             )
         return super()._camera_export_error()
 
