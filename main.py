@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
-from minicut_agent.runtime_window import RuntimeMiniCutWindow
+from minicut_agent.bulk_api_window import BulkApiRuntimeMiniCutWindow as RuntimeMiniCutWindow
 
 def main():
     app = QApplication(sys.argv)
