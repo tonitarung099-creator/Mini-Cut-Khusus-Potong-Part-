@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from fractions import Fraction
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,14 +12,22 @@ from minicut_agent.manual_commands import extract_manual_timestamps, looks_like_
 
 
 class CameraBoundaryResolverTests(unittest.TestCase):
-    def test_prefers_nearest_camera_change_then_locks_first_new_shot_master_pts(self):
+    def test_exact_scene_event_maps_to_identical_master_pts(self):
+        event = {
+            "time_ms": 10_083,
+            "exact_time": Fraction(10083, 1000),
+            "detectors": {"scene"},
+            "thresholds": [0.27],
+            "signal_distance": 0.0,
+            "camera_boundary_verified": True,
+        }
         points = [
-            {"time_ms": 10_042, "exact_time": "251/25"},
-            {"time_ms": 10_083, "exact_time": "10083/1000"},
+            {"time_ms": 10_042, "exact_time": "251/25", "pts": 251, "time_base": "1/25"},
+            {"time_ms": 10_083, "exact_time": "10083/1000", "pts": 10083, "time_base": "1/1000"},
         ]
         with patch(
-            "minicut_agent.camera_boundary.detect_visual_boundaries",
-            return_value=[10_050, 11_200],
+            "minicut_agent.camera_boundary.detect_camera_boundary_events",
+            return_value=[event],
         ) as detect, patch(
             "minicut_agent.camera_boundary.probe_frame_points",
             return_value=points,
@@ -29,29 +38,38 @@ class CameraBoundaryResolverTests(unittest.TestCase):
                 "ffprobe",
                 10_000,
                 duration_ms=60_000,
+                require_camera_change=True,
             )
 
         self.assertTrue(result["camera_change_found"])
+        self.assertTrue(result["camera_boundary_verified"])
+        self.assertTrue(result["pts_verified"])
         self.assertFalse(result["fallback_to_nearest_frame"])
-        self.assertEqual(result["raw_scene_boundary_ms"], 10_050)
-        # 10.042 is closer to the rounded boundary, but it belongs to the old
-        # shot. Camera-aware cuts must start on the first frame at/after change.
         self.assertEqual(result["time_ms"], 10_083)
         self.assertEqual(result["exact_time"], "10083/1000")
-        self.assertEqual(result["shift_ms"], 83)
-        self.assertEqual(result["search_radius_ms"], 2_000)
         self.assertEqual(result["frame_side"], "first-frame-new-shot")
-        kwargs = detect.call_args.kwargs
-        self.assertLessEqual(kwargs["dedupe_tolerance_ms"], 1)
-        self.assertGreaterEqual(kwargs["seek_preroll_ms"], 5_000)
+        self.assertEqual(detect.call_count, 1)
 
-    def test_expands_search_to_four_seconds_when_first_window_has_no_cut(self):
+    def test_expands_search_when_first_window_has_no_cut(self):
+        event = {
+            "time_ms": 13_000,
+            "exact_time": Fraction(13, 1),
+            "detectors": {"scene"},
+            "thresholds": [0.27],
+            "signal_distance": 0.0,
+            "camera_boundary_verified": True,
+        }
         with patch(
-            "minicut_agent.camera_boundary.detect_visual_boundaries",
-            side_effect=[[], [13_000]],
+            "minicut_agent.camera_boundary.detect_camera_boundary_events",
+            side_effect=[[], [event]],
         ) as detect, patch(
             "minicut_agent.camera_boundary.probe_frame_points",
-            return_value=[{"time_ms": 13_000, "exact_time": "13"}],
+            return_value=[{
+                "time_ms": 13_000,
+                "exact_time": "13",
+                "pts": 325,
+                "time_base": "1/25",
+            }],
         ):
             result = resolve_camera_boundary(
                 Path("movie.mp4"),
@@ -59,21 +77,46 @@ class CameraBoundaryResolverTests(unittest.TestCase):
                 "ffprobe",
                 10_000,
                 duration_ms=60_000,
+                require_camera_change=True,
             )
 
         self.assertEqual(detect.call_count, 2)
-        self.assertTrue(result["camera_change_found"])
+        self.assertTrue(result["camera_boundary_verified"])
         self.assertEqual(result["search_radius_ms"], 4_000)
         self.assertEqual(result["time_ms"], 13_000)
 
-    def test_falls_back_to_nearest_real_frame_when_no_camera_change_exists(self):
+    def test_required_camera_mode_returns_review_instead_of_nearest_frame(self):
+        with patch(
+            "minicut_agent.camera_boundary.detect_camera_boundary_events",
+            return_value=[],
+        ), patch(
+            "minicut_agent.camera_boundary.probe_frame_points",
+        ) as probe:
+            result = resolve_camera_boundary(
+                Path("movie.mp4"),
+                "ffmpeg",
+                "ffprobe",
+                10_000,
+                duration_ms=60_000,
+                require_camera_change=True,
+            )
+
+        self.assertFalse(result["camera_change_found"])
+        self.assertFalse(result["fallback_to_nearest_frame"])
+        self.assertFalse(result["camera_boundary_verified"])
+        self.assertFalse(result["pts_verified"])
+        self.assertTrue(result["needs_review"])
+        self.assertIsNone(result["exact_time"])
+        probe.assert_not_called()
+
+    def test_ordinary_timestamp_mode_keeps_legacy_real_frame_fallback(self):
         points = [
             {"time_ms": 9_958, "exact_time": "4979/500"},
             {"time_ms": 10_000, "exact_time": "10"},
             {"time_ms": 10_042, "exact_time": "5021/500"},
         ]
         with patch(
-            "minicut_agent.camera_boundary.detect_visual_boundaries",
+            "minicut_agent.camera_boundary.detect_camera_boundary_events",
             return_value=[],
         ), patch(
             "minicut_agent.camera_boundary.probe_frame_points",
@@ -89,6 +132,7 @@ class CameraBoundaryResolverTests(unittest.TestCase):
 
         self.assertFalse(result["camera_change_found"])
         self.assertTrue(result["fallback_to_nearest_frame"])
+        self.assertFalse(result["camera_boundary_verified"])
         self.assertEqual(result["time_ms"], 10_000)
         self.assertEqual(result["exact_time"], "10")
         self.assertEqual(result["frame_side"], "nearest-master-frame")
@@ -133,8 +177,6 @@ class ExactVisualDetectionTests(unittest.TestCase):
                 seek_preroll_ms=5_000,
             )
 
-        # scan starts at 5s, so pts_time 4.9 belongs to 9.9s and is context
-        # only; pts_time 5.1 maps to 10.1s and is inside the requested window.
         self.assertEqual(points, [10_100])
         cmd = runner.call_args.args[0]
         ss_index = cmd.index("-ss")
