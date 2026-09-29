@@ -44,7 +44,6 @@ from smartcut.__main__ import main as _smartcut_main  # noqa: E402
 
 _TERMINAL_START = {"s", "start"}
 _TERMINAL_END = {"e", "end", "-0"}
-_MINICUT_PART_RE = re.compile(r"_Part-\d+\.[^.]+$", flags=re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -85,10 +84,14 @@ def _looks_like_minicut_exact_keep(argv: list[str]) -> bool:
     values = [item.strip() for item in keep.split(",")]
     if len(values) != 2:
         return False
-    # Restrict automatic hardening to MiniCut's own generated Part filenames.
-    # This avoids changing generic standalone SmartCut CLI semantics.
-    if not _MINICUT_PART_RE.search(Path(argv[1]).name):
-        return False
+
+    # Do not rely on the output filename here. core.export_segments_smartcut()
+    # writes each part to a temporary staging path first, so the companion does
+    # not necessarily see the final "*_Part-01.mp4" name. Exact MiniCut calls
+    # already have an unambiguous contract: exact PTS values are emitted as
+    # canonical Fraction text (integer or n/d), while non-exact fallback times
+    # are fixed decimal strings. This keeps staging, retry and final export on
+    # the same exact-frame validation path.
     non_terminal = [
         value for value in values
         if value.lower() not in _TERMINAL_START | _TERMINAL_END
