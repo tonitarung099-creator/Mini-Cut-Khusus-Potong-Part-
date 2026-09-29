@@ -8,7 +8,7 @@ import unittest
 from fractions import Fraction
 from pathlib import Path
 
-from minicut_agent.camera_boundary import resolve_camera_boundary
+from minicut_agent.camera_boundary_strict import resolve_camera_boundary
 from minicut_agent.core import export_segments_smartcut, fraction_seconds_to_ms
 
 
