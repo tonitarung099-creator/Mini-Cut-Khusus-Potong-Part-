@@ -1,4 +1,3 @@
-# Refreshed after a transient GitHub Actions startup failure on 2026-09-29.
 name: Build MiniCut Windows
 
 on:
