@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +13,16 @@ from minicut_agent.verified_window import (
 )
 
 
+class _SerializerHost:
+    _install_project_serializer = VerifiedMiniCutWindow._install_project_serializer
+
+
+class _RequiredBoundaryHost:
+    _remember_pending_review = VerifiedMiniCutWindow._remember_pending_review
+    tool_add_cut = VerifiedMiniCutWindow.tool_add_cut
+    _camera_export_error = VerifiedMiniCutWindow._camera_export_error
+
+
 class VerificationPersistenceTests(unittest.TestCase):
     def test_project_serializer_keeps_camera_verification_metadata(self):
         with tempfile.TemporaryDirectory() as td:
@@ -22,7 +31,7 @@ class VerificationPersistenceTests(unittest.TestCase):
             source.write_bytes(b"video")
             project = root / "movie.minicut.json"
 
-            host = object.__new__(VerifiedMiniCutWindow)
+            host = _SerializerHost()
             host._pending_camera_reviews = [{
                 "requested_ms": 20_000,
                 "needs_review": True,
@@ -94,7 +103,7 @@ class RequiredBoundaryToolTests(unittest.TestCase):
             self.value = "smartcut"
 
     def _host(self, source: Path):
-        host = object.__new__(VerifiedMiniCutWindow)
+        host = _RequiredBoundaryHost()
         host.model = ProjectModel()
         host.model.source = source
         host.model.duration_ms = 60_000
