@@ -29,6 +29,8 @@ def _clean_fallback_candidate(line: str) -> str:
         left, right = value.split("=", 1)
         if left.strip().upper() in _ENV_NAMES:
             value = right.strip()
+        else:
+            return ""
 
     value = value.strip().strip("\"'").rstrip(",;").strip()
     if len(value) < 20 or any(ch.isspace() for ch in value):
