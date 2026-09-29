@@ -5,6 +5,7 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
+from . import camera_boundary as _base_boundary
 from .camera_boundary import (
     _detect_signal_frames,
     _unresolved_result,
@@ -27,6 +28,68 @@ def _distance(a: dict[str, Any], b: dict[str, Any]) -> float:
         + abs(float(a["u"]) - float(b["u"])) / 224.0
         + abs(float(a["v"]) - float(b["v"])) / 224.0
     )
+
+
+def _persistent_signal_change_events(
+    frames: list[dict[str, Any]],
+    *,
+    start_ms: int,
+    end_ms: int,
+    min_distance: float = 0.055,
+) -> list[dict[str, Any]]:
+    """Emit only the first frame whose luma/chroma state actually changed.
+
+    The initial implementation used a post-window median as the event trigger;
+    that could label the final OLD frame one frame early. Here the candidate
+    frame itself must differ from the previous stable median and agree with the
+    following state. This also avoids generating a second artificial candidate
+    around a persistent transition.
+    """
+    events: list[dict[str, Any]] = []
+    if len(frames) < 5:
+        return events
+
+    for index in range(2, len(frames) - 1):
+        point = frames[index]
+        point_ms = int(point["time_ms"])
+        if not (int(start_ms) <= point_ms <= int(end_ms)):
+            continue
+
+        before = frames[max(0, index - 3):index]
+        future = frames[index:min(len(frames), index + 3)]
+        if len(before) < 2 or len(future) < 2:
+            continue
+
+        before_sig = _median_signature(before)
+        future_sig = _median_signature(future)
+        current_sig = {
+            "y": float(point["y"]),
+            "u": float(point["u"]),
+            "v": float(point["v"]),
+        }
+        entry_jump = _distance(before_sig, current_sig)
+        persistent_jump = _distance(before_sig, future_sig)
+        current_to_future = _distance(current_sig, future_sig)
+
+        if entry_jump < float(min_distance):
+            continue
+        if persistent_jump < float(min_distance):
+            continue
+        if current_to_future > max(0.030, float(min_distance) * 0.75):
+            continue
+
+        events.append({
+            "exact_time": Fraction(point["exact_time"]),
+            "time_ms": point_ms,
+            "detector": "signal",
+            "signal_distance": float(entry_jump),
+        })
+    return events
+
+
+# The base exact-PTS resolver calls this global at runtime. Replace only the
+# signal-event classifier; PTS parsing/matching remains in camera_boundary.py.
+_base_boundary._signal_change_events = _persistent_signal_change_events
 
 
 def _looks_like_transient_flash(
