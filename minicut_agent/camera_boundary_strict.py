@@ -37,14 +37,7 @@ def _persistent_signal_change_events(
     end_ms: int,
     min_distance: float = 0.055,
 ) -> list[dict[str, Any]]:
-    """Emit only the first frame whose luma/chroma state actually changed.
-
-    The initial implementation used a post-window median as the event trigger;
-    that could label the final OLD frame one frame early. Here the candidate
-    frame itself must differ from the previous stable median and agree with the
-    following state. This also avoids generating a second artificial candidate
-    around a persistent transition.
-    """
+    """Emit the first real frame whose luma/chroma state changed persistently."""
     events: list[dict[str, Any]] = []
     if len(frames) < 5:
         return events
@@ -87,9 +80,60 @@ def _persistent_signal_change_events(
     return events
 
 
-# The base exact-PTS resolver calls this global at runtime. Replace only the
-# signal-event classifier; PTS parsing/matching remains in camera_boundary.py.
+def _strict_mark_ambiguous_rapid_reversals(
+    events: list[dict[str, Any]],
+    *,
+    window_ms: int = 120,
+) -> None:
+    """Separate duplicate detector hits from genuinely rapid/ambiguous cuts.
+
+    A persistent signal transition is frame-grounded. FFmpeg's scene detector
+    can report the same transition one frame later, especially after seeking or
+    with inter-frame codecs. In that case keep the single signal event and mark
+    adjacent scene-only hits as duplicate/ambiguous. If there is no unique
+    persistent signal anchor, multiple close events remain conservative REVIEW.
+    """
+    for event in events:
+        event["ambiguous_rapid_change"] = False
+
+    if len(events) < 2:
+        return
+
+    index = 0
+    while index < len(events):
+        cluster = [events[index]]
+        end = index + 1
+        while end < len(events):
+            previous = Fraction(cluster[-1]["exact_time"])
+            current = Fraction(events[end]["exact_time"])
+            delta_ms = float(current - previous) * 1000.0
+            if delta_ms > float(window_ms):
+                break
+            cluster.append(events[end])
+            end += 1
+
+        if len(cluster) > 1:
+            signal_events = [
+                item for item in cluster
+                if "signal" in set(item.get("detectors") or set())
+            ]
+            if len(signal_events) == 1:
+                signal_event = signal_events[0]
+                for item in cluster:
+                    item["ambiguous_rapid_change"] = item is not signal_event
+                    if item is not signal_event:
+                        item["duplicate_of_signal_event"] = True
+            else:
+                for item in cluster:
+                    item["ambiguous_rapid_change"] = True
+        index = end
+
+
+# detect_camera_boundary_events resolves these names dynamically in the base
+# module. Keep exact PTS parsing there, while replacing only the two policies
+# that require persistence/duplicate awareness.
 _base_boundary._signal_change_events = _persistent_signal_change_events
+_base_boundary._mark_ambiguous_rapid_reversals = _strict_mark_ambiguous_rapid_reversals
 
 
 def _looks_like_transient_flash(
@@ -97,14 +141,7 @@ def _looks_like_transient_flash(
     source: Path,
     exact_time: Fraction,
 ) -> bool:
-    """True when the candidate frame changes sharply but immediately returns.
-
-    FFmpeg's scene score can emit only the entry edge of an A->B->A one-frame
-    flash. Compare the candidate itself with a stable median before and after it:
-    a large pre->candidate jump followed by a near-identical pre/post state is a
-    transient flash (or an ultra-short ambiguous insert), not an auto-verifiable
-    part boundary.
-    """
+    """Reject A->B->A one-frame flashes even when scene emits one edge only."""
     center_ms = fraction_seconds_to_ms(exact_time)
     frames = _detect_signal_frames(
         ffmpeg,
