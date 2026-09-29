@@ -14,7 +14,10 @@ from minicut_agent.runtime_window import RuntimeMiniCutWindow
 
 class RuntimeFilmCutVerificationTests(unittest.TestCase):
     def _host(self, source: Path):
-        host = object.__new__(RuntimeMiniCutWindow)
+        class Host:
+            pass
+
+        host = Host()
         host.model = ProjectModel()
         host.model.source = source
         host.model.duration_ms = 60_000
@@ -49,7 +52,9 @@ class RuntimeFilmCutVerificationTests(unittest.TestCase):
                 "minicut_agent.runtime_window.resolve_camera_boundary",
                 return_value=resolved,
             ):
-                checked = host._verify_film_cut_results([result])[0]
+                checked = RuntimeMiniCutWindow._verify_film_cut_results(
+                    host, [result]
+                )[0]
 
             self.assertTrue(checked["camera_boundary_verified"])
             self.assertTrue(checked["pts_verified"])
@@ -88,7 +93,9 @@ class RuntimeFilmCutVerificationTests(unittest.TestCase):
                 "minicut_agent.runtime_window.resolve_camera_boundary",
                 return_value=resolved,
             ):
-                checked = host._verify_film_cut_results([result])[0]
+                checked = RuntimeMiniCutWindow._verify_film_cut_results(
+                    host, [result]
+                )[0]
 
             self.assertFalse(checked["camera_boundary_verified"])
             self.assertTrue(checked["needs_review"])
